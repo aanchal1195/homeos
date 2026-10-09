@@ -129,6 +129,50 @@ with tempfile.TemporaryDirectory(prefix="guided-ci-private-") as private:
     assert "Kitchen" in answer.json()["reply"],answer.json()
     assert client.get("/api/guided/evidence/"+eid+"/media",
                       headers=staff_headers).status_code==403
+    # Most new households begin with Home Memory disabled. When they later
+    # explicitly enable/sync the graph, preserve the original owner-approved
+    # visual provenance; do not mistake it for an unreviewed system import.
+    guided_setup._infer=lambda *args:guided_setup.VisionReadout.model_validate({
+        "findings":[{"kind":"ASSET","name":"Coffee Filter Jar",
+          "asset_type":"other","room_hint":"Kitchen",
+          "evidence_summary":"SCRIPTED late-enabled-graph fixture"}]})
+    another=client.post("/api/guided/upload",headers=owner_headers,
+       data={"media_kind":"ROOM_PHOTO","room_id":room_id},
+       files={"file":("second.png",raw,"image/png")})
+    assert another.status_code==201,another.text
+    second=another.json()["evidence"]["id"]
+    identified=client.post("/api/guided/analyze",headers=owner_headers,
+       json={"evidence_id":second,"consent_to_external_ai_processing":True})
+    assert identified.status_code==200,identified.text
+    finding=identified.json()["evidence"]["suggestions"][0]
+    os.environ["HOMEOS_MEMORY_ENABLED"]="false"
+    try:
+        offline=client.post(f"/api/guided/evidence/{second}/decide",
+         headers=owner_headers,json={"suggestion_id":finding["id"],
+                                    "decision":"ACCEPT","room_id":room_id})
+        assert offline.status_code==200,offline.text
+    finally:
+        os.environ["HOMEOS_MEMORY_ENABLED"]="true"
+    synced=client.post("/api/memory/sync",headers=owner_headers)
+    assert synced.status_code==200,synced.text
+    assert synced.json()["guided_owner_reviews_imported"]>=1,synced.text
+    again=client.post("/api/memory/sync",headers=owner_headers)
+    assert again.status_code==200
+    assert again.json()["guided_owner_reviews_imported"]==0
+    with SessionLocal() as session:
+        jar=session.scalar(select(Asset).where(
+            Asset.household_id==house,Asset.name=="Coffee Filter Jar"))
+        assert jar
+        entity=_run(session,"""SELECT entity_id FROM memory_legacy_links WHERE
+             household_id=:house AND legacy_type='asset' AND legacy_id=:id""",
+             house=_uuid(house),id=jar.id).scalar_one()
+        provenance=_run(session,"""SELECT v.source_type,v.source_ref FROM memory_assertions a
+             JOIN memory_evidence v ON v.id=a.evidence_id AND v.household_id=a.household_id
+             WHERE a.household_id=:house AND a.subject_id=:id AND
+             a.predicate='LOCATED_IN' AND a.verification_status='CONFIRMED' AND
+             a.valid_until IS NULL""",house=_uuid(house),id=entity).mappings().one()
+        assert provenance["source_type"]=="OWNER",provenance
+        assert provenance["source_ref"].startswith(f"guided-setup:{second}:")
     print("PASS M5: private PNG -> scripted proposals -> owner reject/accept ->")
     print("real PostgreSQL + OWNER evidence -> existing JARVIS grounded retrieval.")
     print("NOTE: no real model/image recognition or browser used.")
