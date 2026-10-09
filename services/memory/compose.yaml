@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: homeos
+      POSTGRES_USER: homeos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U homeos -d homeos"]
+      interval: 5s
+      retries: 15
+    volumes:
+      - memory_pgdata:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro
+  memory:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://homeos:${POSTGRES_PASSWORD}@db:5432/homeos
+      HOMEOS_API_TOKEN: ${HOMEOS_API_TOKEN:?Set HOMEOS_API_TOKEN}
+      HOMEOS_HOUSEHOLD_ID: ${HOMEOS_HOUSEHOLD_ID:?Set HOMEOS_HOUSEHOLD_ID}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8001"
+volumes:
+  memory_pgdata:
