@@ -723,6 +723,25 @@ def agent_trace(message_id:str,m:Member=Depends(actor),s:Session=Depends(db)):
             'token_usage':row.token_usage,'tools':json.loads(row.trace_json),
             'created_at':row.created_at.isoformat()}
 
+@app.get('/api/chat/capabilities')
+def chat_capabilities(m:Member=Depends(actor)):
+    from app.agent_runtime import mode_available,provider_configured
+    if m.role!='owner':
+        status='DETERMINISTIC_STAFF'
+        reason='The owner-only reasoning tools are not available to staff.'
+    elif not mode_available():
+        status='DETERMINISTIC_FALLBACK'
+        reason='Reasoning agent opt-in is disabled. Replies use legacy deterministic handlers.'
+    elif not provider_configured():
+        status='AGENT_MISSING_KEY'
+        reason='Reasoning agent is enabled but no separate provider credential is configured.'
+    else:
+        status='AGENT_CONFIGURED_UNVERIFIED'
+        reason='Reasoning agent is configured; provider availability is verified per request.'
+    return {'status':status,'reason':reason,
+            'security_warning':'Local demo identities are not production authentication.'}
+
+
 @app.get('/api/chat/history')
 def history(m:Member=Depends(actor),s:Session=Depends(db)):
     xs=s.scalars(select(Message).where(Message.household_id==m.household_id,Message.member_id==m.id).order_by(Message.created_at.desc()).limit(50)).all()[::-1]
