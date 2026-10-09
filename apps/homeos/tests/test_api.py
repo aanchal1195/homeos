@@ -564,3 +564,99 @@ def test_guided_native_iphone_heic_from_real_decoder(monkeypatch,tmp_path):
         with Image.open(io.BytesIO(preview.content)) as image:
             assert image.format=='JPEG'
             assert image.size==(80,60)
+
+
+def test_guided_provider_check_uses_no_household_or_media(monkeypatch):
+    """A deliberate connectivity probe transmits only synthetic JSON text."""
+    from app import guided_setup
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    observed=[]
+    def stub_provider(messages,*,max_tokens,timeout):
+        observed.append((messages,max_tokens,timeout))
+        return {'ok':True}
+    monkeypatch.setattr(guided_setup,'_provider',stub_provider)
+    assert call('POST','/api/guided/provider-check',maid,json={}).status_code==403
+    response=call('POST','/api/guided/provider-check',owner,json={})
+    assert response.status_code==200,response.text
+    assert response.json()['status']=='CONNECTED'
+    assert len(observed)==1
+    msgs,tokens,seconds=observed[0]
+    assert tokens<=35 and seconds<=12
+    assert [x['role'] for x in msgs]==['system','user']
+    wire=str(msgs).lower()
+    assert 'image_url' not in wire and 'data:image' not in wire
+    assert 'household_id' not in wire and 'floor_id' not in wire
+    assert 'password' not in wire and 'bearer' not in wire
+
+
+def test_guided_provider_failures_are_specific_and_redacted(monkeypatch):
+    """No API key, response body, or sensitive image data reaches the client."""
+    from app import guided_setup
+    from fastapi import HTTPException
+    import httpx,pytest
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_AI_ENABLED','true')
+    fake_secret='CI_DONT_EXPOSE_THIS_PROVIDER_KEY'
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_API_KEY',fake_secret)
+    req=httpx.Request('POST','https://api.openai.com/v1/chat/completions')
+    private_message='PRIVATE_PROVIDER_PAYLOAD_NEVER_RENDER'
+    cases=[
+       (401,{'error':{'message':private_message,'code':'invalid_api_key'}},'GUIDED_AI_AUTH_FAILED'),
+       (403,{'error':{'message':private_message}},'GUIDED_AI_ACCESS_DENIED'),
+       (404,{'error':{'message':private_message}},'GUIDED_AI_MODEL_NOT_FOUND'),
+       (429,{'error':{'message':private_message,'code':'insufficient_quota'}},'GUIDED_AI_QUOTA'),
+       (429,{'error':{'message':private_message,'code':'rate_limit_exceeded'}},'GUIDED_AI_RATE_LIMIT'),
+       (400,{'error':{'message':private_message}},'GUIDED_AI_REQUEST_REJECTED'),
+       (502,{'error':{'message':private_message}},'GUIDED_AI_UPSTREAM_ERROR'),
+    ]
+    for code,body,label in cases:
+        status,message=guided_setup._provider_error(httpx.Response(
+            code,json=body,request=req))
+        assert status in (502,503)
+        assert label in message
+        assert private_message not in message
+        assert fake_secret not in message
+
+    # Exercise adapter boundary, not only its pure categorization helper.
+    true_client=httpx.Client
+    class FakeClient:
+        def __init__(self, response):
+            self.response=response
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def post(self,*args,**kwargs):
+            assert kwargs['headers']['Authorization']=='Bearer '+fake_secret
+            assert kwargs['json']['response_format']=={'type':'json_object'}
+            return self.response
+    for status,body,label in cases:
+        reply=httpx.Response(status,json=body,request=req)
+        monkeypatch.setattr(guided_setup.httpx,'Client',lambda *a,resp=reply,**kw:FakeClient(resp))
+        with pytest.raises(HTTPException) as err:
+            guided_setup._provider([{'role':'user','content':'JSON test'}])
+        assert label in str(err.value.detail)
+        assert private_message not in str(err.value.detail)
+        assert fake_secret not in str(err.value.detail)
+
+    completed=httpx.Response(200,json={'choices':[{
+       'finish_reason':'stop','message':{'content':'{"ok":true}'}
+    }]},request=req)
+    monkeypatch.setattr(guided_setup.httpx,'Client',
+         lambda *a,**kw:FakeClient(completed))
+    assert guided_setup._provider([{'role':'user','content':'JSON test'}])=={'ok':True}
+    truncated=httpx.Response(200,json={'choices':[{
+       'finish_reason':'length','message':{'content':'{"partial":'}
+    }]},request=req)
+    monkeypatch.setattr(guided_setup.httpx,'Client',
+         lambda *a,**kw:FakeClient(truncated))
+    with pytest.raises(HTTPException) as err:
+        guided_setup._provider([{'role':'user','content':'JSON test'}])
+    assert 'GUIDED_AI_RESPONSE_TRUNCATED' in str(err.value.detail)
+    malformed=httpx.Response(200,json={'choices':[{
+       'finish_reason':'stop','message':{'content':'{bad json'}
+    }]},request=req)
+    monkeypatch.setattr(guided_setup.httpx,'Client',
+         lambda *a,**kw:FakeClient(malformed))
+    with pytest.raises(HTTPException) as err:
+        guided_setup._provider([{'role':'user','content':'JSON test'}])
+    assert 'GUIDED_AI_INVALID_JSON' in str(err.value.detail)
