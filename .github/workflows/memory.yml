@@ -44,5 +44,6 @@ jobs:
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/002_visual_memory.sql
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/003_visual_analysis.sql
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/004_staged_visual_worker.sql
+      - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/005_visual_review.sql
       - run: python -m compileall -q app.py graph_routes.py visual_routes.py vision_analysis.py visual_analysis_routes.py m2c_projection.py tests
       - run: pytest -q tests
