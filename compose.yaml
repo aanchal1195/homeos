@@ -35,6 +35,10 @@ services:
       HOMEOS_DEMO_MODE: 'true'
       PYTHONPATH: /srv/homeos
       HOMEOS_MEMORY_ENABLED: ${HOMEOS_MEMORY_ENABLED:-false}
+      # Optional server-side read-only language understanding, OFF by default.
+      HOMEOS_CHAT_EXTERNAL_ENABLED: ${HOMEOS_CHAT_EXTERNAL_ENABLED:-false}
+      HOMEOS_CHAT_API_KEY: ${HOMEOS_CHAT_API_KEY:-}
+      HOMEOS_CHAT_MODEL: ${HOMEOS_CHAT_MODEL:-gpt-4.1-mini}
       HOMEOS_PRIVATE_MEMORY_MEDIA_ROOT: /srv/homeos/private_memory_media
       HOMEOS_MEMORY_INTERNAL_URL: http://memory:8001
       HOMEOS_MEMORY_SERVICE_TOKEN: ${HOMEOS_API_TOKEN:-}
