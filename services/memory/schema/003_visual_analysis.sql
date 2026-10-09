@@ -1,62 +1,29 @@
--- M3C: bounded frame preparation and staged visual-analysis findings.
-CREATE TABLE IF NOT EXISTS visual_analysis_jobs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  household_id uuid NOT NULL,
-  session_id uuid NOT NULL,
-  media_id uuid NOT NULL,
-  status text NOT NULL DEFAULT 'QUEUED'
-    CHECK(status IN ('QUEUED','PROCESSING','FRAMES_READY','COMPLETED','FAILED')),
-  analyzer_name text NOT NULL,
-  analyzer_version text NOT NULL,
-  idempotency_key text NOT NULL,
-  requested_at timestamptz NOT NULL DEFAULT now(),
-  started_at timestamptz,
-  finished_at timestamptz,
-  error_code text,
-  error_detail text,
-  FOREIGN KEY (household_id,session_id) REFERENCES visual_sessions(household_id,id),
-  FOREIGN KEY (household_id,media_id) REFERENCES memory_media(household_id,id),
-  UNIQUE(household_id,id),
-  UNIQUE(household_id,idempotency_key)
+-- M3C: reproducible visual-analysis runs; never automatically promote observations to graph assertions.
+CREATE TABLE IF NOT EXISTS visual_analysis_runs (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ household_id uuid NOT NULL,
+ session_id uuid NOT NULL,
+ media_id uuid NOT NULL,
+ status text NOT NULL CHECK(status IN ('PENDING','RUNNING','COMPLETED','FAILED','SKIPPED')),
+ provider text NOT NULL,
+ model_version text NOT NULL,
+ result_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+ error_code text,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ completed_at timestamptz,
+ FOREIGN KEY (household_id,session_id,media_id)
+  REFERENCES visual_session_media(household_id,session_id,media_id),
+ UNIQUE(household_id,session_id,media_id,provider,model_version),
+ UNIQUE(household_id,id)
 );
-CREATE INDEX IF NOT EXISTS idx_visual_analysis_jobs_status
-  ON visual_analysis_jobs(household_id,status,requested_at);
-
-CREATE TABLE IF NOT EXISTS visual_frames (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  household_id uuid NOT NULL,
-  job_id uuid NOT NULL,
-  media_id uuid NOT NULL,
-  frame_timestamp_ms integer NOT NULL CHECK(frame_timestamp_ms >= 0),
-  storage_key text NOT NULL UNIQUE,
-  sha256 text NOT NULL CHECK(sha256 ~ '^[a-f0-9]{64}$'),
-  byte_size bigint NOT NULL CHECK(byte_size > 0),
-  width integer NOT NULL CHECK(width > 0),
-  height integer NOT NULL CHECK(height > 0),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (household_id,job_id) REFERENCES visual_analysis_jobs(household_id,id),
-  FOREIGN KEY (household_id,media_id) REFERENCES memory_media(household_id,id),
-  UNIQUE(household_id,id),
-  UNIQUE(household_id,job_id,frame_timestamp_ms)
-);
-CREATE INDEX IF NOT EXISTS idx_visual_frames_job
-  ON visual_frames(household_id,job_id,frame_timestamp_ms);
-
-CREATE TABLE IF NOT EXISTS visual_analysis_findings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  household_id uuid NOT NULL,
-  job_id uuid NOT NULL,
-  frame_id uuid NOT NULL,
-  observation_id uuid NOT NULL,
-  finding_type text NOT NULL,
-  summary text NOT NULL,
-  severity text NOT NULL CHECK(severity IN ('INFO','LOW','MEDIUM','HIGH','CRITICAL')),
-  confidence double precision NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (household_id,job_id) REFERENCES visual_analysis_jobs(household_id,id),
-  FOREIGN KEY (household_id,frame_id) REFERENCES visual_frames(household_id,id),
-  FOREIGN KEY (household_id,observation_id) REFERENCES memory_observations(household_id,id),
-  UNIQUE(household_id,id)
-);
-CREATE INDEX IF NOT EXISTS idx_visual_findings_job
-  ON visual_analysis_findings(household_id,job_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_visual_analysis_run_session ON visual_analysis_runs(household_id,session_id,created_at);
+ALTER TABLE memory_observations
+ ADD COLUMN IF NOT EXISTS analysis_run_id uuid,
+ ADD COLUMN IF NOT EXISTS review_reason text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_observation_analysis_run') THEN
+  ALTER TABLE memory_observations ADD CONSTRAINT fk_observation_analysis_run
+  FOREIGN KEY(household_id,analysis_run_id) REFERENCES visual_analysis_runs(household_id,id);
+ END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_memory_observation_run ON memory_observations(household_id,analysis_run_id);

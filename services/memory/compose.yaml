@@ -17,9 +17,11 @@ services:
     environment:
       DATABASE_URL: postgresql://homeos:${POSTGRES_PASSWORD}@db:5432/homeos
       HOMEOS_API_TOKEN: ${HOMEOS_API_TOKEN:?Set HOMEOS_API_TOKEN}
-      HOMEOS_WORKER_TOKEN: ${HOMEOS_WORKER_TOKEN:?Set HOMEOS_WORKER_TOKEN}
+      HOMEOS_WORKER_TOKEN: ${HOMEOS_WORKER_TOKEN:-}
       HOMEOS_HOUSEHOLD_ID: ${HOMEOS_HOUSEHOLD_ID:?Set HOMEOS_HOUSEHOLD_ID}
       PRIVATE_MEDIA_ROOT: /srv/memory/private_media
+      HOMEOS_VISION_API_KEY: ${HOMEOS_VISION_API_KEY:-}
+      HOMEOS_VISION_MODEL: ${HOMEOS_VISION_MODEL:-gpt-4.1-mini}
     depends_on:
       db:
         condition: service_healthy

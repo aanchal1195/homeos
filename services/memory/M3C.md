@@ -1,37 +1,38 @@
-# M3C — Visual analysis pipeline
+# M3C — Visual Intelligence (first working vertical slice)
 
-M3C adds the execution boundary between private inspection media and future multimodal inference.
+Adds a real OpenAI-compatible image-vision request against the **official OpenAI Chat Completions endpoint** (the service never synthesizes detections without a configured API key). It uses the private media upload and inspection sessions introduced in M3B.
 
-## What it does
+## Run
 
-1. Owner queues analysis for media already attached to a visual session.
-2. A separately authenticated worker prepares bounded JPEG frames.
-   - Images produce one normalized frame.
-   - Videos produce at most 12 sampled frames.
-3. A trusted analyzer publishes structured findings against those frames.
-4. Every finding is stored as a `PENDING` memory observation with media, frame timestamp, analyzer name/version and confidence.
-5. Nothing in M3C directly changes confirmed graph assertions.
+For a fresh standalone memory service, provide environment values in `services/memory/.env` (see README) and add:
 
-## Security boundary
+```env
+HOMEOS_VISION_API_KEY=your_api_key
+HOMEOS_VISION_MODEL=gpt-4.1-mini
+```
 
-- Owner endpoints use `HOMEOS_API_TOKEN`.
-- Worker endpoints use a separate `HOMEOS_WORKER_TOKEN`.
-- Frame files remain under `PRIVATE_MEDIA_ROOT`; there is no public frame-serving endpoint.
-- Worker findings must target the inspected location or a confirmed descendant in the memory graph.
-- Analyzer confidence is metadata for triage, not a calibrated probability and not authorization to create repairs or spend money.
+Do not commit keys. Start with `cd services/memory && docker compose --env-file .env up --build -d`. Existing PostgreSQL installations **must apply `schema/003_visual_analysis.sql`** using a migration plan and backup; automatic init SQL runs only on a fresh database volume.
 
-## API
+## Workflow
 
-- `POST /api/v1/visual/sessions/{session_id}/analysis` — queue one attached media item.
-- `GET /api/v1/visual/analysis/jobs/{job_id}` — owner reads job, frames and findings.
-- `POST /api/v1/visual/analysis/jobs/{job_id}/prepare` — worker creates bounded frames.
-- `POST /api/v1/visual/analysis/jobs/{job_id}/findings` — worker stages structured findings.
+1. Create or look up a ROOM/SPACE entity in Home Memory.
+2. Start a visual session for that room: `POST /api/v1/visual/sessions`.
+3. Upload supported photo/video: `POST /api/v1/visual/media`.
+4. Attach it: `POST /api/v1/visual/sessions/{session_id}/media/{media_id}`.
+5. Analyze: `POST /api/v1/visual/sessions/{session_id}/analyze/{media_id}`.
+6. Inspect runs: `GET /api/v1/visual/sessions/{session_id}/analysis`.
+7. Review pending observations through existing memory observation review endpoint.
 
-## Not included yet
+For videos, FFmpeg samples frames at 0, 5 and 10 seconds when those frames exist. Only decoded, resized JPEG frames are sent to the vision provider; original evidence remains private. Image metadata is stripped before sending to the model. The provider returns a constrained JSON list of visibly recognized objects.
 
-- No external multimodal model provider is called by this service.
-- No object detection, embeddings, automatic task creation or confirmed graph mutation.
-- No public download endpoint for frames/media.
-- No production OIDC/RBAC yet.
+Detection labels are matched **only** against unambiguously named, confirmed assets in the inspection location (and its known sublocations). Unmatched objects become pending observations, **not new confirmed assets**. A detected object in a different room does not automatically move it; unobserved objects are not assumed missing. All generated observations are persisted with the original media reference, model version and frame timestamp.
 
-The next increment should add a provider adapter/worker process that consumes `FRAMES_READY` jobs and submits schema-validated findings while retaining this trust boundary.
+## Boundaries
+
+- **External disclosure**: analysis sends image content or sampled video frames to the configured OpenAI vision provider. Obtain owner/staff consent before submitting private household images; do not upload sensitive footage without approval.
+- **Cost**: each media analysis may issue up to 3 paid model requests.
+- **Reliability**: this first increment runs synchronously; failed attempts can be retried with the same model without duplicating observations, but interrupted RUNNING attempts still require operator recovery. There is no background queue, lease expiry, or recovery scheduler yet.
+- **Review**: observation acceptance never changes the confirmed knowledge graph. An authorized domain workflow must apply approved facts.
+- **Accuracy**: no identity recognition, exact object tracking, calibrated confidence, depth estimation, hidden defect diagnosis, or accurate inventory quantification.
+- **Authentication**: existing single-owner bootstrap token remains unsuitable for staff/public deployment.
+- **UI**: this service is not yet integrated with the separate local-only HomeOS dashboard.

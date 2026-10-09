@@ -29,7 +29,7 @@ MAX_FRAME_EDGE = 1600
 def worker_identity(authorization: str | None = Header(default=None)):
     token = os.getenv("HOMEOS_WORKER_TOKEN", "")
     household = os.getenv("HOMEOS_HOUSEHOLD_ID", "")
-    if not token or not household or not authorization or not authorization.startswith("Bearer "):
+    if not token or token == os.getenv("HOMEOS_API_TOKEN") or not household or not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Unauthorized worker")
     if not compare_digest(authorization[7:], token):
         raise HTTPException(401, "Unauthorized worker")
@@ -178,12 +178,16 @@ def queue_analysis(session_id: uuid.UUID, body: AnalysisRequest, house=Depends(i
         if not attached:
             raise HTTPException(422, "Media must be attached to the session")
         existing = conn.execute(
-            """SELECT id,status FROM visual_analysis_jobs
+            """SELECT id,status,session_id,media_id,analyzer_name,analyzer_version FROM visual_analysis_jobs
                WHERE household_id=%s AND idempotency_key=%s""",
             (house, body.idempotency_key),
         ).fetchone()
         if existing:
-            return existing
+            if (existing["session_id"] != session_id or existing["media_id"] != body.media_id
+                or existing["analyzer_name"] != body.analyzer_name.strip()
+                or existing["analyzer_version"] != body.analyzer_version.strip()):
+                raise HTTPException(409, "Idempotency key already belongs to a different analysis")
+            return {"id": existing["id"], "status": existing["status"]}
         row = conn.execute(
             """INSERT INTO visual_analysis_jobs
                (household_id,session_id,media_id,analyzer_name,analyzer_version,idempotency_key)
