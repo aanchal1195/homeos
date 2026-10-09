@@ -17,7 +17,7 @@ type VisualLocation={id:string;name:string;type:string};
 type VisualFinding={id:string;label:string;description:string;confidence:number|null;media_id:string;model_version:string|null;frame_timestamp_ms:number|null;inspected_location:string;matched_legacy_asset_id:string|null;locations:VisualLocation[];observed_at:string};
 type VisualReviewData={observations:VisualFinding[];assets:{id:string;name:string}[]};
 type VisualDecision='REJECT'|'VERIFY_ONLY'|'REGISTER_ASSET'|'CONFIRM_LOCATION';
-type VisualDraft={action:VisualDecision;name:string;asset:string;location:string;note:string};
+type VisualDraft={action:VisualDecision;name:string;asset:string;location:string;note:string;assetType:'appliance'|'furniture'|'fixture'|'equipment'|'other'};
 
 const api=async(path:string,memberId?:string,init:RequestInit={})=>{
   const headers=new Headers(init.headers||{});if(memberId)headers.set('X-Member-Id',memberId);
@@ -148,7 +148,7 @@ function VisualReviewPanel({memberId}:{memberId:string}){
     finally{setLoading(false)}
   };
   useEffect(()=>{if(memberId)void load()},[memberId]);
-  const empty:VisualDraft={action:'VERIFY_ONLY',name:'',asset:'',location:'',note:''};
+  const empty:VisualDraft={action:'VERIFY_ONLY',name:'',asset:'',location:'',note:'',assetType:'appliance'};
   const update=(id:string,change:Partial<VisualDraft>)=>setDrafts(x=>({...x,[id]:{...(x[id]||empty),...change}}));
   const submit=async(item:VisualFinding,decision:VisualDecision)=>{
     const d=drafts[item.id]||empty;
@@ -166,7 +166,7 @@ function VisualReviewPanel({memberId}:{memberId:string}){
       await api('/api/memory/visual/'+item.id+'/resolve',memberId,{
         method:'POST',body:JSON.stringify({
           decision,corrected_name:d.name.trim()||null,location_entity_id:d.location||null,
-          asset_id:d.asset||null,note:d.note,asset_type:'appliance'
+          asset_id:d.asset||null,note:d.note,asset_type:d.assetType
         })
       });
       await load();
@@ -198,6 +198,13 @@ function VisualReviewPanel({memberId}:{memberId:string}){
           </label>
           {d.action==='REGISTER_ASSET'&&<label>Verified asset name
             <input value={d.name} placeholder="Type the correct object name" maxLength={120} onChange={e=>update(item.id,{name:e.target.value})}/>
+          </label>}
+          {d.action==='REGISTER_ASSET'&&<label>Asset category
+            <select value={d.assetType} onChange={e=>update(item.id,{assetType:e.target.value as VisualDraft['assetType']})}>
+              <option value="appliance">Appliance</option><option value="furniture">Furniture</option>
+              <option value="fixture">Fixture</option><option value="equipment">Equipment</option>
+              <option value="other">Other</option>
+            </select>
           </label>}
           {d.action==='CONFIRM_LOCATION'&&<label>Registered asset
             <select value={d.asset} onChange={e=>update(item.id,{asset:e.target.value})}>
