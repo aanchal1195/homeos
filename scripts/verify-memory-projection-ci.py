@@ -5,6 +5,8 @@ import os
 import uuid
 import psycopg
 from fastapi.testclient import TestClient
+# The M2C Alembic job uses a SQLAlchemy URL. Direct psycopg queries need a libpq URL.
+os.environ["DATABASE_URL"] = os.environ["MEMORY_DATABASE_URL"]
 from app import app
 
 assert os.getenv("HOMEOS_TEST_MODE") == "true", "Disposable test databases only"
