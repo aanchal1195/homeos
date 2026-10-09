@@ -1,0 +1,16 @@
+# Optional isolated manual smoke test. Always combine with root compose.yaml.
+# Docker Compose v2.24+ required for !override.
+# Uses different Docker project/volumes and non-conflicting localhost ports.
+# Example:
+# docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml up -d --build db redis api web
+name: homeos-sandbox
+services:
+  api:
+    ports: !override
+      - "127.0.0.1:8800:8000"
+  web:
+    ports: !override
+      - "127.0.0.1:3300:3000"
+  memory:
+    ports: !override
+      - "127.0.0.1:8801:8001"
