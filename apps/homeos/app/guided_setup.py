@@ -45,7 +45,7 @@ MAX_VIDEO_SECONDS=90
 MAX_SUGGESTIONS=16
 KINDS={"FLOORPLAN","ROOM_PHOTO","ROOM_VIDEO"}
 STEPS={"REQUEST_FLOORPLAN","CAPTURE_ROOM","CAPTURE_DIFFERENT_ANGLE",
-       "REVIEW_FINDINGS","IDENTIFY_FLOORS","IDENTIFY_ROOMS","CLARIFY_LAYOUT",
+       "ANALYZE_EVIDENCE","REVIEW_FINDINGS","IDENTIFY_FLOORS","IDENTIFY_ROOMS","CLARIFY_LAYOUT",
        "READY_TO_LAUNCH"}
 
 
@@ -70,7 +70,7 @@ class VisionReadout(BaseModel):
 class NextChoice(BaseModel):
     model_config=ConfigDict(extra="forbid")
     step:Literal["REQUEST_FLOORPLAN","CAPTURE_ROOM","CAPTURE_DIFFERENT_ANGLE",
-                 "REVIEW_FINDINGS","IDENTIFY_FLOORS","IDENTIFY_ROOMS",
+                 "ANALYZE_EVIDENCE","REVIEW_FINDINGS","IDENTIFY_FLOORS","IDENTIFY_ROOMS",
                  "CLARIFY_LAYOUT","READY_TO_LAUNCH"]
     room_id:str|None=None
     question:str=Field(min_length=5,max_length=200)
@@ -290,6 +290,11 @@ def _local_next(floors,rooms,media,pending,coverage):
         return NextChoice(step="REVIEW_FINDINGS",
           question="Review the detected floor, room and object suggestions before adding more.",
           reason=f"{pending} AI suggestions are pending owner approval.")
+    unexamined=next((x for x in media if x.status in ("UPLOADED","FAILED")),None)
+    if unexamined:
+        return NextChoice(step="ANALYZE_EVIDENCE",room_id=unexamined.room_id,
+          question="There is private evidence waiting. Shall we analyze it with explicit AI consent, or describe the visible layout manually?",
+          reason=f"The {unexamined.media_kind.lower().replace('_',' ')} has not produced any reviewed findings.")
     if not floors:
         if not any(x.media_kind=="FLOORPLAN" for x in media):
             return NextChoice(step="REQUEST_FLOORPLAN",
@@ -329,7 +334,7 @@ def _model_next(floors,rooms,media,pending,coverage,fallback):
            "suggested_local_step":fallback.model_dump()}
     instruction=(
       "Act as an inquisitive household-mapping coordinator, not a form wizard. "
-      "Choose the single most valuable NEXT action from the allowed enum only. "
+      "Choose the single most valuable NEXT action from REQUEST_FLOORPLAN, ANALYZE_EVIDENCE, CAPTURE_ROOM, CAPTURE_DIFFERENT_ANGLE, REVIEW_FINDINGS, IDENTIFY_FLOORS, IDENTIFY_ROOMS, CLARIFY_LAYOUT, READY_TO_LAUNCH. "
       "Prioritize reviewing any pending proposals. Ask for a floor plan if "
       "missing layout makes floor relationships unclear, but it is optional. "
       "Inspect room coverage and request a short walkthrough, another angle, "
