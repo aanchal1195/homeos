@@ -557,7 +557,7 @@ def test_guided_native_iphone_heic_from_real_decoder(monkeypatch,tmp_path):
             assert original==raw,'Original HEIC must not be overwritten'
             encoded=guided_setup._encode(guided_setup._file_of(evidence),evidence.content_type)
             decoded=base64.b64decode(encoded[0])
-            assert decoded.startswith(b'\\xff\\xd8')
+            assert decoded.startswith(bytes.fromhex('ffd8'))
         preview=call('GET',f"/api/guided/evidence/{item['id']}/media",owner)
         assert preview.status_code==200,preview.text[:120]
         assert preview.headers['content-type'].startswith('image/jpeg')
