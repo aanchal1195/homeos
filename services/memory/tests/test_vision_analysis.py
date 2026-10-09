@@ -99,3 +99,27 @@ def test_video_sampling_limits_frames_and_handles_failed_samples(monkeypatch,tmp
     monkeypatch.setattr(vision,"encode_image",lambda raw:"encoded")
     images=vision.frames(path,"video/mp4")
     assert len(calls)==3 and [x[0] for x in images]==[0,10000]
+
+def test_failed_analysis_can_retry_without_duplicate_observations(api,monkeypatch):
+    from fastapi import HTTPException
+    client,headers=api
+    room=entity(client,headers,"ROOM","Retry room "+uuid.uuid4().hex[:9])
+    sid,mid=create_photo(client,headers,room)
+    def failed(encoded,context):
+        raise HTTPException(502,"Simulated provider failure")
+    monkeypatch.setattr(vision,"infer",failed)
+    first=client.post(f"/api/v1/visual/sessions/{sid}/analyze/{mid}",headers=headers)
+    assert first.status_code==502,first.text
+    status=client.get(f"/api/v1/visual/sessions/{sid}/analysis",headers=headers)
+    assert status.status_code==200
+    assert status.json()["runs"][0]["status"]=="FAILED"
+    monkeypatch.setattr(vision,"infer",lambda encoded,context:
+        vision.VisionResult(detections=[],inspection_notes="No visible registered assets"))
+    retry=client.post(f"/api/v1/visual/sessions/{sid}/analyze/{mid}",headers=headers)
+    assert retry.status_code==200,retry.text
+    assert retry.json()["summary"]["frames"]==1
+    assert retry.json()["summary"]["observations"]==0
+    assert retry.json()["summary"]["inspection_notes"][0]["text"]=="No visible registered assets"
+    assert retry.json()["run_id"]==status.json()["runs"][0]["id"]
+    listing=client.get(f"/api/v1/visual/sessions/{sid}/observations",headers=headers)
+    assert listing.json()["observations"]==[]
