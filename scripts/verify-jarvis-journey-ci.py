@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 assert os.getenv("HOMEOS_TEST_MODE")=="true", "Never run on household data"
 assert os.getenv("HOMEOS_MEMORY_ENABLED")=="true"
-from app.main import app, SessionLocal, Member, Room, Asset, uid
+from app.main import app, SessionLocal, Member, Room, Asset, Issue, uid
 
 root=Path(__file__).resolve().parent.parent
 house=os.environ["HOMEOS_HOUSEHOLD_ID"]
@@ -188,6 +188,28 @@ with tempfile.TemporaryDirectory(prefix="homeos-m4a-ci-") as temporary:
             assert contents["intent"]=="MEMORY_GROUNDED_ROOM_CONTENTS",contents
             assert "Electric Kettle" in contents["reply"],contents
             assert "Refrigerator" in contents["reply"],contents
+
+            # Explicit asset-in-room question is not a room inventory request.
+            membership=ask("Is the electric kettle in the Kitchen?")
+            assert membership["intent"]=="MEMORY_GROUNDED_ASSET_LOCATION",membership
+            assert "Yes, the recorded location matches" in membership["reply"],membership
+            room_location=ask("Where is the Kitchen?")
+            assert room_location["intent"]=="MEMORY_GROUNDED_ROOM_LOCATION",room_location
+            assert "Ground Floor" in room_location["reply"],room_location
+            room_followup=ask("What's inside it?")
+            assert room_followup["intent"]=="MEMORY_GROUNDED_ROOM_CONTENTS",room_followup
+            assert "Electric Kettle" in room_followup["reply"],room_followup
+
+            # An asset-status statement must reach issue reporting, not a location answer.
+            with SessionLocal() as db:
+                before_issues=len(db.scalars(select(Issue).where(
+                    Issue.household_id==house)).all())
+            broken=ask("Electric Kettle broken")
+            assert broken["intent"]=="REPORT_ISSUE",broken
+            with SessionLocal() as db:
+                after_issues=len(db.scalars(select(Issue).where(
+                    Issue.household_id==house)).all())
+            assert after_issues==before_issues+1
 
             # 6. Two identically named fans may never be silently collapsed.
             ambiguous=ask("Where is the fan?")
