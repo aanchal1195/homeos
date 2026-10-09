@@ -201,3 +201,6 @@ def query(body:QueryIn,household=Depends(identity)):
             return {"answer_type":"AMBIGUOUS","matches":matches}
         eid=matches[0]["id"]
     return get_location(eid,household)
+
+from graph_routes import router as graph_router
+app.include_router(graph_router)
