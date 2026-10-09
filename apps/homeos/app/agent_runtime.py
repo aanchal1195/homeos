@@ -20,7 +20,7 @@ from sqlalchemy import select
 from app.agent_tools import (execute, openai_tool_specs, READ_TOOLS,
                              WRITABLE_PROPOSALS)
 
-MAX_MODEL_ROUNDS=5
+MAX_MODEL_ROUNDS=9
 MAX_TOOL_CALLS=8
 MAX_TOTAL_SECONDS=28
 MAX_REQUEST_CHARS=23000
