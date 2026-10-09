@@ -137,3 +137,70 @@ def test_grounded_intent_parser_is_read_only_and_handles_paraphrases(monkeypatch
     ],'fan')
     monkeypatch.delenv('HOMEOS_CHAT_EXTERNAL_ENABLED',raising=False)
     assert optional_intent('Where is it?',[],[],{}) is None
+
+
+def test_home_manager_requires_owner_and_confirmation_then_tracks_evidence():
+    import base64
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    cook=next(x['id'] for x in members if x['role']=='cook')
+    tree=call('GET','/api/virtual-house',owner).json()['property']
+    rooms={r['name']:r['id'] for f in tree['floors'] for r in f['rooms']}
+    kitchen=rooms['Kitchen']
+    bathroom=rooms['Guest Bathroom']
+    draft={'room_id':bathroom,'assignee_id':maid,
+           'instruction':'Wipe surfaces; submit photographic evidence.'}
+    assert call('POST','/api/home-manager/plans',maid,json=draft).status_code==403
+    assert call('POST','/api/home-manager/plans',owner,
+                json={**draft,'room_id':kitchen}).status_code==403
+    assert call('POST','/api/home-manager/plans',owner,
+                json={**draft,'assignee_id':cook}).status_code==422
+    before=call('GET','/api/today',maid).json()['tasks']
+    created=call('POST','/api/home-manager/plans',owner,json=draft)
+    assert created.status_code==201,created.text
+    plan=created.json()
+    assert plan['status']=='PROPOSED'
+    assert plan['task_id'] is None
+    assert len(call('GET','/api/today',maid).json()['tasks'])==len(before)
+    assert call('GET',f"/api/home-manager/plans/{plan['id']}",maid).status_code==403
+
+    approved=call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",owner,json={})
+    assert approved.status_code==200,approved.text
+    assigned=approved.json()
+    task_id=assigned['task_id']
+    assert task_id and assigned['task_status']=='ASSIGNED'
+    assert assigned['owner_confirmed']
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",owner,
+                json={}).json()['task_id']==task_id
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/cancel",owner,
+                json={}).status_code==409
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",maid,
+                json={}).status_code==403
+    after=call('GET','/api/today',maid).json()['tasks']
+    assert len(after)==len(before)+1
+    assert after[-1]['source']=='HOME_MANAGER'
+
+    for state in ('IN_PROGRESS','SUBMITTED'):
+        result=call('POST',f'/api/tasks/{task_id}/status',maid,json={'status':state})
+        assert result.status_code==200,result.text
+    pending=call('GET',f"/api/home-manager/plans/{plan['id']}",owner)
+    assert pending.status_code==200
+    assert 'inspect evidence' in pending.json()['follow_up']
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'VERIFIED'}).status_code==409
+    sample=base64.b64decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pLUAAAAASUVORK5CYII=')
+    evidence=call('POST',f'/api/tasks/{task_id}/evidence',maid,
+       files={'file':('completed.png',sample,'image/png')})
+    assert evidence.status_code==200,evidence.text
+    assert call('POST',f'/api/tasks/{task_id}/status',maid,
+                json={'status':'VERIFIED'}).status_code==403
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'VERIFIED'}).status_code==200
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'CLOSED'}).status_code==200
+    finished=call('GET',f"/api/home-manager/plans/{plan['id']}",owner).json()
+    assert finished['task_status']=='CLOSED'
+    assert finished['evidence_count']==1
+    assert finished['follow_up']=='Completed and closed.'
