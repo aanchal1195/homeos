@@ -58,6 +58,9 @@ class ObservationIn(BaseModel):
     evidence: EvidenceIn
     payload: dict = Field(default_factory=dict)
     confidence: float | None = Field(default=None, ge=0, le=1)
+    media_id: uuid.UUID | None = None
+    frame_timestamp_ms: int | None = Field(default=None, ge=0)
+    model_version: str | None = Field(default=None, max_length=100)
 
 class QueryIn(BaseModel):
     query: str = Field(min_length=1,max_length=500)
@@ -162,11 +165,17 @@ def add_observation(body:ObservationIn,household=Depends(identity)):
     with db() as conn:
         for eid in (body.subject_id,body.candidate_object_id):
             if eid: need_entity(conn,household,eid)
+        if body.media_id:
+            exists=conn.execute("SELECT 1 FROM memory_media WHERE household_id=%s AND id=%s",
+                                (household,body.media_id)).fetchone()
+            if not exists:
+                raise HTTPException(404,"Media evidence not found")
         ev=evidence_insert(conn,household,body.evidence)
         oid=conn.execute("""INSERT INTO memory_observations
-          (household_id,subject_id,candidate_object_id,predicate,evidence_id,payload,confidence)
-          VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-          (household,body.subject_id,body.candidate_object_id,body.predicate,ev,Jsonb(body.payload),body.confidence)).fetchone()["id"]
+          (household_id,subject_id,candidate_object_id,predicate,evidence_id,payload,confidence,media_id,frame_timestamp_ms,model_version)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+          (household,body.subject_id,body.candidate_object_id,body.predicate,ev,Jsonb(body.payload),body.confidence,
+           body.media_id,body.frame_timestamp_ms,body.model_version)).fetchone()["id"]
         return {"id":oid,"status":"PENDING"}
 
 @app.get("/api/v1/memory/entities/{entity_id}/history")
