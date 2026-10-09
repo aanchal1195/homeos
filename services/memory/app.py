@@ -222,3 +222,6 @@ app.include_router(vision_router)
 
 from visual_analysis_routes import router as staged_worker_router
 app.include_router(staged_worker_router)
+
+from m2c_projection import router as m2c_projection_router
+app.include_router(m2c_projection_router)
