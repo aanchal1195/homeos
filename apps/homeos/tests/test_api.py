@@ -126,6 +126,10 @@ def test_visual_review_requires_owner_and_configured_graph():
 def test_grounded_intent_parser_is_read_only_and_handles_paraphrases(monkeypatch):
     from app.grounded_jarvis import norm, _extract_unknown, MUTATING, _asset_candidates, optional_intent
     assert norm('  Fridge...  Kahan? ')=='fridge kahan'
+    from app.grounded_jarvis import _hinglish
+    assert _hinglish('Electric kettle kahan hai?') is True
+    assert _hinglish('फ्रिज कहाँ है?') is True
+    assert _hinglish('Is it still there?') is False
     assert _extract_unknown('Where did we put the microwave?')=='microwave'
     assert _extract_unknown('Fridge kahan hai?')=='refrigerator'
     assert _extract_unknown('Where is it now?') is None
