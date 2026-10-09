@@ -6,6 +6,7 @@ on:
       - "compose.yaml"
       - "scripts/verify-photo-inspection-ci.py"
       - "scripts/verify-jarvis-journey-ci.py"
+      - "scripts/verify-home-manager-ci.py"
       - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
@@ -103,6 +104,10 @@ jobs:
           HOMEOS_MEMORY_ENABLED: 'true'
           HOMEOS_CHAT_EXTERNAL_ENABLED: 'false'
         run: python scripts/verify-jarvis-journey-ci.py
+      - name: Verify owner-confirmed Home Manager plan and task evidence lifecycle in PostgreSQL
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+        run: python scripts/verify-home-manager-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
