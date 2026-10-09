@@ -204,3 +204,25 @@ def test_home_manager_requires_owner_and_confirmation_then_tracks_evidence():
     assert finished['task_status']=='CLOSED'
     assert finished['evidence_count']==1
     assert finished['follow_up']=='Completed and closed.'
+
+
+def test_optional_model_cannot_substitute_a_previous_asset_for_unknown_subject(monkeypatch):
+    import app.grounded_jarvis as router
+    class FakeResponse:
+        def raise_for_status(self):pass
+        def json(self):
+            return {'choices':[{'message':{'content':
+              '{"intent":"location","subject":"Refrigerator","room":"Kitchen"}'}}]}
+    class FakeClient:
+        def __init__(self,*args,**kwargs):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+        def post(self,*args,**kwargs):return FakeResponse()
+    monkeypatch.setattr(router.httpx,'Client',FakeClient)
+    monkeypatch.setenv('HOMEOS_CHAT_EXTERNAL_ENABLED','true')
+    monkeypatch.setenv('HOMEOS_CHAT_API_KEY','ci-fake-no-network')
+    previous={'ref_name':'Refrigerator','ref_type':'asset'}
+    guessed=router.optional_intent('Where is the toaster?',[],[],previous)
+    assert guessed and guessed.subject is None and guessed.room is None
+    referred=router.optional_intent('Where is it now?',[],[],previous)
+    assert referred and referred.subject=='Refrigerator' and referred.room is None
