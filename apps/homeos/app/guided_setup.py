@@ -554,6 +554,11 @@ def _attest_guided_asset(s,m,item,suggestion,asset):
        AND verification_status='CONFIRMED' AND valid_until IS NULL FOR UPDATE""",
        house=house,id=aid).mappings().first()
     ref=f"guided-setup:{item.id}:{suggestion['id']}"
+    prior=_run(s,"""SELECT id FROM memory_evidence WHERE
+       household_id=:house AND source_type='OWNER' AND source_ref=:ref
+       LIMIT 1""",house=house,ref=ref).first()
+    if prior:
+        return  # Later explicit memory sync is idempotent.
     ev=_run(s,"""INSERT INTO memory_evidence(household_id,source_type,source_ref,metadata)
        VALUES(:house,'OWNER',:ref,CAST(:meta AS jsonb)) RETURNING id""",
        house=house,ref=ref,meta=json.dumps({
@@ -576,6 +581,49 @@ def _attest_guided_asset(s,m,item,suggestion,asset):
         "evidence_id":item.id,"suggestion_id":suggestion["id"],
         "from":str(old["object_id"]) if old else None,"to":str(rid),
         "reviewer_member_id":m.id}),ref=ref)
+
+
+def import_approved_provenance(s,m):
+    """Owner-invoked backfill after enabling Home Memory on an older local setup.
+
+    Never restore a stale location: accepted media must still match the current
+    operational room, and any existing independently OWNER-verified assertion
+    takes precedence. Called within the same transaction as memory projection.
+    """
+    from app.memory_bridge import supported,_run,_uuid
+    if not supported(s):return 0
+    house=_uuid(m.household_id)
+    evidence=s.scalars(select(GuidedEvidence).where(
+        GuidedEvidence.household_id==m.household_id,
+        GuidedEvidence.status=="ANALYZED").order_by(GuidedEvidence.created_at)
+        .limit(600)).all()
+    imported=0
+    for item in evidence:
+        for suggestion in json.loads(item.suggestions_json or "[]"):
+            if (suggestion.get("kind")!="ASSET" or
+                    suggestion.get("status")!="ACCEPTED" or
+                    not suggestion.get("applied_id") or
+                    not suggestion.get("approved_room_id")):
+                continue
+            asset=s.get(Asset,suggestion["applied_id"])
+            if (not asset or asset.household_id!=m.household_id or
+                    asset.room_id!=suggestion["approved_room_id"]):
+                continue
+            current=_run(s,"""SELECT v.source_type,v.source_ref FROM memory_legacy_links l
+                JOIN memory_assertions a ON a.household_id=l.household_id
+                  AND a.subject_id=l.entity_id
+                JOIN memory_evidence v ON v.household_id=a.household_id
+                  AND v.id=a.evidence_id
+                WHERE l.household_id=:house AND l.legacy_type='asset'
+                  AND l.legacy_id=:asset
+                  AND a.predicate='LOCATED_IN' AND
+                      a.verification_status='CONFIRMED' AND a.valid_until IS NULL""",
+                house=house,asset=asset.id).mappings().first()
+            if current and current["source_type"]=="OWNER":
+                continue
+            _attest_guided_asset(s,m,item,suggestion,asset)
+            imported+=1
+    return imported
 
 
 @app.post("/api/guided/evidence/{evidence_id}/decide")
@@ -637,6 +685,8 @@ def guided_decide(evidence_id:str,body:DecisionIn,m=Depends(actor),s:Session=Dep
                 s.add(made);s.flush()
         if made is None:raise HTTPException(422,"Unsupported suggestion kind")
         suggested["applied_id"]=made.id
+        if suggested["kind"]=="ASSET":
+            suggested["approved_room_id"]=made.room_id
         # If memory is active, sync through the existing projection, then
         # replace the imported asset location with explicit OWNER provenance.
         _projection_if_active(s,m)
