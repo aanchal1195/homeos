@@ -44,7 +44,7 @@ def entity_for(conn,house,table,row,entity_type,stats):
     if old:
         entity_id=old["entity_id"]
         conn.execute("""UPDATE memory_entities SET canonical_name=%s,entity_type=%s,
-          attributes=attributes || %s WHERE household_id=%s AND id=%s""",
+          attributes=attributes || %s,status='ACTIVE' WHERE household_id=%s AND id=%s""",
           (row["name"],entity_type,Jsonb(attributes),house,entity_id))
         stats["updated"]+=1
     else:
@@ -74,11 +74,16 @@ def project_edge(conn,house,source_id,predicate,target_id,source_key,stats):
            for row in current):
         ev=conn.execute("""INSERT INTO memory_evidence(household_id,source_type,source_ref)
             VALUES(%s,'SYSTEM',%s) RETURNING id""",(house,source_key)).fetchone()["id"]
-        conn.execute("""INSERT INTO memory_observations
-             (household_id,subject_id,predicate,candidate_object_id,evidence_id,payload)
-             VALUES(%s,%s,%s,%s,%s,%s)""",(house,source_id,predicate,target_id,ev,
-             Jsonb({"reason":"M2C graph projection conflicts with verified memory","source":source_key})))
-        stats["conflicts_proposed"]+=1
+        already=conn.execute("""SELECT 1 FROM memory_observations WHERE
+           household_id=%s AND subject_id=%s AND predicate=%s AND candidate_object_id=%s
+           AND status='PENDING' AND payload->>'reason'='M2C graph projection conflicts with verified memory'
+           LIMIT 1""",(house,source_id,predicate,target_id)).fetchone()
+        if not already:
+            conn.execute("""INSERT INTO memory_observations
+                (household_id,subject_id,predicate,candidate_object_id,evidence_id,payload)
+                VALUES(%s,%s,%s,%s,%s,%s)""",(house,source_id,predicate,target_id,ev,
+                Jsonb({"reason":"M2C graph projection conflicts with verified memory","source":source_key})))
+            stats["conflicts_proposed"]+=1
         return
     for row in current:
         conn.execute("""UPDATE memory_assertions SET verification_status='SUPERSEDED',valid_until=now()
