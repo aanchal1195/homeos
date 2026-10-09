@@ -610,6 +610,9 @@ def interpret(m,text,s):
     # never assigns work; the owner must confirm in the Home Manager panel.
     if m.role=='owner' and re.search(r'\b(plan|draft|schedule)\b',low) and any(
         word in low for word in ('clean','cleaning','saaf','safai','साफ','सफाई')):
+        if re.match(r'^\s*(what|which|show|tell|how|where|क्या|कैसा)\b',low):
+            return ('No new cleaning plan has been drafted. Open Home Manager to review existing plans.',
+                    None,'HOME_MANAGER_PLAN_QUERY')
         if any(word in low for word in ('tomorrow','kal','अगले','कल')):
             return ('Specify the due date in Home Manager before confirming; I did not schedule anything.',
                     None,'HOME_MANAGER_CLARIFY_DATE')
