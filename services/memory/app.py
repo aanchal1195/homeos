@@ -204,3 +204,6 @@ def query(body:QueryIn,household=Depends(identity)):
 
 from graph_routes import router as graph_router
 app.include_router(graph_router)
+
+from visual_routes import router as visual_router
+app.include_router(visual_router)
