@@ -318,7 +318,8 @@ def answer(s,m,utterance):
     reads=(where or history or contents or
            "what about" in low or "do we have" in low or "is there" in low or
            "is it in" in low or "is the" in low or "is our" in low or
-           "is my" in low or "does the" in low or "does our" in low)
+           "is my" in low or "does the" in low or "does our" in low or
+           "still there" in low or "still in" in low or "abhi bhi" in low)
     # "The one in Kitchen?" is a disambiguation, not a new independent fact.
     resolving=bool(previous.get("ref_type")=="ambiguous" and explicit_rooms and
                    any(word_match(token,low) for token in ("one","that","the","wala","वाला")))
