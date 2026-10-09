@@ -4,7 +4,7 @@ set -euo pipefail
 # Never use this script to migrate the live "homeos" Compose project.
 cd "$(dirname "$0")/.."
 if [[ ! -f .env.smoke ]]; then
-  echo "Missing .env.smoke. Copy .env.example and set a SANDBOX password first." >&2
+  echo "Missing .env.smoke. Copy .env.smoke.example and set a SANDBOX password first." >&2
   exit 2
 fi
 COMPOSE=(docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml)
