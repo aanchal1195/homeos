@@ -78,6 +78,11 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/services/memory
         run: python scripts/verify-memory-projection-ci.py
+      - name: Verify JARVIS retrieval using the real M2C API and graph
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+        run: python scripts/verify-jarvis-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
