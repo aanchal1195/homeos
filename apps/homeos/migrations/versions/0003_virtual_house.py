@@ -23,15 +23,17 @@ def upgrade():
         sa.Column('property_id',sa.String(),sa.ForeignKey('properties.id'),nullable=False),sa.Column('name',sa.String(),nullable=False),
         sa.Column('sort_order',sa.Integer(),nullable=False),sa.Column('kind',sa.String(),nullable=False,server_default='floor'),
         sa.UniqueConstraint('property_id','sort_order',name='uq_floor_property_order'))
-    op.add_column('rooms',sa.Column('floor_id',sa.String(),nullable=True))
-    op.create_foreign_key('fk_rooms_floor_id','rooms','floors',['floor_id'],['id'])
+    with op.batch_alter_table('rooms') as batch:
+        batch.add_column(sa.Column('floor_id', sa.String(), nullable=True))
+        batch.create_foreign_key('fk_rooms_floor_id', 'floors', ['floor_id'], ['id'])
     op.create_table('zones',
         sa.Column('id',sa.String(),primary_key=True),sa.Column('household_id',sa.String(),sa.ForeignKey('households.id'),nullable=False),
         sa.Column('room_id',sa.String(),sa.ForeignKey('rooms.id'),nullable=False),sa.Column('name',sa.String(),nullable=False),
         sa.Column('kind',sa.String(),nullable=False,server_default='area'))
-    op.add_column('assets',sa.Column('zone_id',sa.String(),nullable=True))
-    op.add_column('assets',sa.Column('asset_type',sa.String(),nullable=False,server_default='appliance'))
-    op.create_foreign_key('fk_assets_zone_id','assets','zones',['zone_id'],['id'])
+    with op.batch_alter_table('assets') as batch:
+        batch.add_column(sa.Column('zone_id', sa.String(), nullable=True))
+        batch.add_column(sa.Column('asset_type', sa.String(), nullable=False, server_default='appliance'))
+        batch.create_foreign_key('fk_assets_zone_id', 'zones', ['zone_id'], ['id'])
     op.create_table('staff_scopes',
         sa.Column('id',sa.String(),primary_key=True),sa.Column('household_id',sa.String(),sa.ForeignKey('households.id'),nullable=False),
         sa.Column('member_id',sa.String(),sa.ForeignKey('members.id'),nullable=False),sa.Column('floor_id',sa.String(),sa.ForeignKey('floors.id'),nullable=True),
@@ -40,7 +42,12 @@ def upgrade():
 
 def downgrade():
     op.drop_table('staff_scopes')
-    op.drop_constraint('fk_assets_zone_id','assets',type_='foreignkey');op.drop_column('assets','asset_type');op.drop_column('assets','zone_id')
+    with op.batch_alter_table('assets') as batch:
+        batch.drop_constraint('fk_assets_zone_id', type_='foreignkey')
+        batch.drop_column('asset_type')
+        batch.drop_column('zone_id')
     op.drop_table('zones')
-    op.drop_constraint('fk_rooms_floor_id','rooms',type_='foreignkey');op.drop_column('rooms','floor_id')
+    with op.batch_alter_table('rooms') as batch:
+        batch.drop_constraint('fk_rooms_floor_id', type_='foreignkey')
+        batch.drop_column('floor_id')
     op.drop_table('floors');op.drop_table('properties');op.drop_column('households','setup_completed')

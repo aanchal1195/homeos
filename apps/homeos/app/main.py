@@ -148,7 +148,7 @@ class Audit(Base):
     detail:Mapped[str]=mapped_column(Text)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
-if DB_URL.startswith('sqlite'):
+if DB_URL.startswith('sqlite') and os.getenv('HOMEOS_AUTO_CREATE_SQLITE', 'true').lower() == 'true':
     Base.metadata.create_all(engine)
 
 app=FastAPI(title='HomeOS JARVIS',version='0.4.0')
