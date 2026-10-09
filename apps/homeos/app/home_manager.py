@@ -116,6 +116,36 @@ def propose_room_cleaning(p:RoomCleaningPlanIn,m=Depends(actor),s:Session=Depend
     return response
 
 
+class RoomCleaningPlanPatch(BaseModel):
+    room_id:str|None=Field(default=None,min_length=1,max_length=100)
+    assignee_id:str|None=Field(default=None,min_length=1,max_length=100)
+    instruction:str|None=Field(default=None,max_length=600)
+
+
+@app.patch("/api/home-manager/plans/{plan_id}")
+def revise_room_cleaning(plan_id:str,p:RoomCleaningPlanPatch,m=Depends(actor),s:Session=Depends(db)):
+    """Owner-only revision of an unconfirmed draft; never mutates an assigned task."""
+    require_owner(m)
+    ensure_operational(s,m)
+    plan=_plan(s,m,plan_id,lock=True)
+    if plan.status!="PROPOSED":
+        raise HTTPException(409,"Only a proposed, unassigned plan may be revised")
+    if p.room_id is None and p.assignee_id is None and p.instruction is None:
+        raise HTTPException(422,"Specify a field to revise")
+    room=scoped(s,Room,p.room_id or plan.room_id,m)
+    staff=scoped(s,Member,p.assignee_id or plan.assignee_id,m)
+    _permission(s,m,room,staff)
+    plan.room_id=room.id
+    plan.assignee_id=staff.id
+    plan.task_title=f"Clean {room.name}"
+    if p.instruction is not None:
+        plan.instruction=p.instruction.strip()
+    audit(s,m,"home_manager.plan.revised",plan.id)
+    response=_present(s,plan)
+    s.commit()
+    return response
+
+
 @app.post("/api/home-manager/plans/{plan_id}/confirm")
 def confirm_room_cleaning(plan_id:str,m=Depends(actor),s:Session=Depends(db)):
     require_owner(m)
