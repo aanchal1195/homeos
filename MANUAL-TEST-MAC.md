@@ -184,3 +184,43 @@ floor/room names and coverage metadata, explicitly tick its consent and click
 **Decide the next useful step**. The model cannot auto-register or assign
 work. Real provider calls and browser walkthroughs have **not** been
 validated by ChatGPT; report incorrect detections and clear failures.
+
+## iPhone native photo uploads and activating guided AI (sandbox only)
+
+The guided setup upload now supports iPhone **HEIC/HEIF**, ordinary
+**JPEG/PNG/WebP**, and MP4/MOV/WebM walkthroughs. It validates **decoded image
+bytes** rather than trusting Safari's reported MIME or the filename. Thus
+a genuine JPEG incorrectly reported as PNG, or HEIC reported as JPEG, is
+accepted. Original files remain private and unchanged; HEIC previews are
+converted to JPEG for browser compatibility. Each image must still be within
+15 MiB / 40 million pixels. ProRAW DNG, animated Live Photo bundles and
+arbitrary image/video formats are not supported; export DNG to JPEG first.
+
+If you received an error saying “Image encoding does not match file type”
+in your previous localhost:3300 app, the fix only arrives after rebuilding
+the **sandbox API and web** from an updated source ZIP.
+
+To turn on **guided AI** in your sandbox, use a valid OpenAI Platform API key
+(this is separate from a ChatGPT subscription). Edit the private
+`.env.smoke` on your Mac, without exposing the key in this chat:
+
+```dotenv
+HOMEOS_GUIDED_SETUP_AI_ENABLED=true
+HOMEOS_GUIDED_SETUP_API_KEY=<paste your own key locally here>
+HOMEOS_GUIDED_SETUP_MODEL=gpt-4.1-mini
+```
+
+After saving it, run `chmod 600 .env.smoke`, and apply changes to **only
+the sandbox**:
+
+```bash
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml config --quiet
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml up -d --build api web
+```
+
+Refresh http://localhost:3300. The guided panel should report the AI
+provider as configured. **Uploading** an image still does not contact OpenAI.
+The owner must separately tick the checkbox for each image and click
+**Analyze this evidence with AI**; next-step reasoning has another consent
+checkbox. Begin with a synthetic/non-sensitive image. No API key or Docker
+configuration change is automatically applied by merging GitHub code.
