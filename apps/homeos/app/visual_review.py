@@ -228,6 +228,11 @@ def resolve_visual_review(observation_id:uuid.UUID,body:VisualDecision,
             name=(body.corrected_name or "").strip()
             if len(name)<2:
                 raise HTTPException(422,"Enter and verify the asset name")
+            for existing_asset in s.query(Asset).filter(
+                Asset.household_id==m.household_id,Asset.room_id==room_id).all():
+                if (existing_asset.name.casefold().strip()==name.casefold()
+                    and existing_asset.zone_id==zone_id):
+                    raise HTTPException(409,"Asset already registered here; review the existing asset instead")
             asset=Asset(id=uid(),household_id=m.household_id,room_id=room_id,
                         zone_id=zone_id,name=name,asset_type=body.asset_type,status="OK")
             s.add(asset)
