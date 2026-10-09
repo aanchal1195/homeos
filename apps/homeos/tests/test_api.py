@@ -121,3 +121,19 @@ def test_visual_review_requires_owner_and_configured_graph():
     assert call('GET','/api/memory/visual/pending',owner).status_code==503
     assert call('POST',f'/api/memory/visual/{observation}/resolve',owner,
       json={'decision':'REJECT'}).status_code==503
+
+
+def test_grounded_intent_parser_is_read_only_and_handles_paraphrases(monkeypatch):
+    from app.grounded_jarvis import norm, _extract_unknown, MUTATING, _asset_candidates, optional_intent
+    assert norm('  Fridge...  Kahan? ')=='fridge kahan'
+    assert _extract_unknown('Where did we put the microwave?')=='microwave'
+    assert _extract_unknown('Fridge kahan hai?')=='refrigerator'
+    assert _extract_unknown('Where is it now?') is None
+    assert MUTATING.search('Please move the microwave to the kitchen')
+    assert MUTATING.search('assign someone to clean the bathroom')
+    assert _asset_candidates([
+        {'id':'1','canonical_name':'Ceiling Fan','aliases':[]},
+        {'id':'2','canonical_name':'Window Fan','aliases':[]},
+    ],'fan')
+    monkeypatch.delenv('HOMEOS_CHAT_EXTERNAL_ENABLED',raising=False)
+    assert optional_intent('Where is it?',[],[],{}) is None
