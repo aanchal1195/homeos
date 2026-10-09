@@ -4,10 +4,13 @@ One transaction updates operational records, evidence-backed graph assertions,
 review decisions and audit. No vision model output is automatically promoted.
 """
 import json
+import os
+from pathlib import Path
 import uuid
 from typing import Literal
 
 from fastapi import Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -75,7 +78,7 @@ def _location_for_asset(s, m, mapped):
     return room.id, zone.id
 
 
-def _visual_observation(s, house, observation_id):
+def _visual_observation(s, house, observation_id, *, lock=False):
     # Only evidence attached to an inspected media analysis can update house records.
     # A model-provided expected_location_id in its payload is never authoritative.
     return _run(s, """SELECT o.id,o.status,o.media_id,o.subject_id,o.payload,o.confidence,
@@ -96,7 +99,7 @@ def _visual_observation(s, house, observation_id):
         AND l.household_id=o.household_id AND l.legacy_type='asset'
       WHERE o.household_id=:house AND o.id=:observation
         AND o.media_id IS NOT NULL AND src.source_type IN ('PHOTO','VIDEO')
-      FOR UPDATE OF o""",
+      """ + (" FOR UPDATE OF o" if lock else ""),
       house=house,observation=observation_id).mappings().first()
 
 
@@ -206,7 +209,7 @@ def resolve_visual_review(observation_id:uuid.UUID,body:VisualDecision,
     require_owner(m)
     _require_review_tables(s)
     house=_uuid(m.household_id)
-    obs=_visual_observation(s,house,observation_id)
+    obs=_visual_observation(s,house,observation_id,lock=True)
     if not obs or obs["status"]!="PENDING":
         raise HTTPException(409,"Observation is unavailable or has already been reviewed")
     resolved_asset=None
@@ -272,3 +275,26 @@ def resolve_visual_review(observation_id:uuid.UUID,body:VisualDecision,
             "status":"REJECTED" if body.decision=="REJECT" else "ACCEPTED",
             "asset_id":resolved_asset,"graph_entity_id":str(graph_entity) if graph_entity else None,
             "location_entity_id":str(location_id) if location_id else None}
+
+@app.get("/api/memory/visual/{observation_id}/evidence")
+def read_visual_evidence(observation_id:uuid.UUID,m=Depends(actor),s:Session=Depends(db)):
+    """Owner-only authenticated media access. Raw media never gets a public URL."""
+    require_owner(m)
+    _require_review_tables(s)
+    house=_uuid(m.household_id)
+    obs=_visual_observation(s,house,observation_id)
+    if not obs:
+        raise HTTPException(404,"Visual observation evidence not found")
+    media=_run(s, """SELECT storage_key,content_type,byte_size FROM memory_media
+      WHERE household_id=:house AND id=:id""",house=house,id=obs["media_id"]).mappings().first()
+    if not media:
+        raise HTTPException(404,"Media metadata not found")
+    if media["content_type"] not in ("image/jpeg","image/png","image/webp","video/mp4","video/quicktime"):
+        raise HTTPException(415,"Unsupported media")
+    root=Path(os.getenv("HOMEOS_PRIVATE_MEMORY_MEDIA_ROOT","/srv/homeos/private_memory_media")).resolve()
+    path=(root / media["storage_key"]).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(404,"Private evidence file unavailable; mount read-only memory media storage")
+    return FileResponse(path,media_type=media["content_type"],
+        headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+                 "Content-Disposition":"inline; filename=evidence"})
