@@ -72,7 +72,7 @@ jobs:
         run: |
           cd apps/homeos
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0004'
+          PYTHONPATH=. alembic current | grep '0005'
       - name: Install the graph and visual memory tables
         run: |
           for sql in services/memory/schema/00*.sql; do
