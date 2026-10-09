@@ -28,9 +28,10 @@ LOCATION_WORDS=("where","locate","located","location","find","placed","stored",
 HISTORY_WORDS=("history","verify","verified","checked","evidence","source","proof",
                "recorded","when","last seen","who moved","who confirmed","how do we know",
                "कब","सबूत","पुष्टि")
-CONTENTS_WORDS=("in the","inside","what else","what do we","what is in",
-                "what's in","what all","which items","what items",
-                "kya hai","kya rakha","क्या है","क्या रखा","wahan kya")
+CONTENTS_WORDS=("what else","what is in","what's in","what do we have in",
+                "what all","which items","what items","what is inside",
+                "what's inside","kya hai","kya rakha","क्या है",
+                "क्या रखा","wahan kya","kya kya")
 FOLLOWUP_WORDS=("it","its","that","there","this","one","these","उसका","वह",
                 "उसमें","wahan","uska","uski","woh","ab","now")
 MUTATING=re.compile(
@@ -157,7 +158,12 @@ def _mentioned(rows,utterance):
     u=norm(utterance)
     scored=[]
     for row in rows:
-        hits=[len(word) for word in _name_options(row) if word_match(word,u)]
+        # A room such as "Store Room" must be named as a location, not inferred
+        # from the ordinary verb "store" in "Where did we store the kettle?".
+        options=({norm(row["canonical_name"])}|
+                 {norm(a) for a in (row["aliases"] or []) if a}) if row["entity_type"] in (
+                 "ROOM","ZONE","SPACE","STORAGE") else _name_options(row)
+        hits=[len(word) for word in options if word_match(word,u)]
         if hits:
             scored.append((max(hits),row))
     if not scored:
@@ -307,8 +313,16 @@ def answer(s,m,utterance):
     where=any(word_match(word,low) for word in LOCATION_WORDS)
     pronoun=any(word_match(word,low) for word in FOLLOWUP_WORDS)
     followup=bool(previous and pronoun)
-    if not (explicit_assets or explicit_rooms or followup or where or history or contents or
-            "what about" in low or "do we have" in low or "is there" in low):
+    # Never hijack operational statements just because they name a known
+    # appliance or room (e.g. "Microwave broken" must reach issue reporting).
+    reads=(where or history or contents or
+           "what about" in low or "do we have" in low or "is there" in low or
+           "is it in" in low or "is the" in low or "is our" in low or
+           "is my" in low or "does the" in low or "does our" in low)
+    # "The one in Kitchen?" is a disambiguation, not a new independent fact.
+    resolving=bool(previous.get("ref_type")=="ambiguous" and explicit_rooms and
+                   any(word_match(token,low) for token in ("one","that","the","wala","वाला")))
+    if not (reads or (followup and (history or where or contents)) or resolving):
         return None
 
     llm=optional_intent(utterance,assets,rooms,previous)
@@ -443,7 +457,7 @@ def answer(s,m,utterance):
         response=f"Last recorded location of {item['canonical_name']}: {labels}. {provenance}"
     if hi:
         response=f"{item['canonical_name']} ka last recorded location: {labels}. {provenance}"
-    if explicit_rooms and any(x in low for x in ("is it in","is the","kya","क्या")):
+    if explicit_rooms and (any(x in low for x in ("is it in","is the","is our","is my","kya","क्या")) or resolving):
         desired={r["id"] for r in explicit_rooms}
         actual=any(step["id"] in desired for step in path)
         response=("Yes, the recorded location matches. " if actual else
