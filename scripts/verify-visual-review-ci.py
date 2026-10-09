@@ -143,6 +143,16 @@ with tempfile.TemporaryDirectory() as temporary:
         added=s.scalars(select(Asset).where(Asset.household_id==house,Asset.name=="Microwave")).all()
         assert len(added)==1
         assert added[0].room_id==kitchen_id
+        assert added[0].status=="UNKNOWN"
+        microwave_legacy_id=added[0].id
+    microwave_graph=graph_link("asset",microwave_legacy_id)
+    with psycopg.connect(url) as conn:
+        src=conn.execute("""SELECT e.source_type FROM memory_assertions a
+             JOIN memory_evidence e ON e.id=a.evidence_id AND e.household_id=a.household_id
+             WHERE a.household_id=%s AND a.subject_id=%s
+             AND a.predicate='LOCATED_IN' AND a.verification_status='CONFIRMED'
+             AND a.valid_until IS NULL""",(house,microwave_graph)).fetchone()
+        assert src and src[0]=="OWNER",src
 
     # A second photo cannot silently register the same named asset twice.
     duplicate_id=create_observations(kitchen_graph,["microwave"])[0]
