@@ -272,7 +272,7 @@ def _is_history(u):
 
 
 def _is_contents(u):
-    return any(x in u for x in CONTENTS_WORDS) or "contents" in u or "inventory" in u
+    return any(norm(x) in u for x in CONTENTS_WORDS) or "contents" in u or "inventory" in u
 
 
 def _is_question(u):
@@ -383,6 +383,23 @@ def answer(s,m,utterance):
                     "koi registered asset nahi (room empty hona confirm nahi hai)"
                 )+". Ye live inspection nahi hai."
             return reply,"room:"+str(room["id"]),"MEMORY_GROUNDED_ROOM_CONTENTS"
+
+    # Registered spaces also have a graph-backed placement: ask where the
+    # kitchen is without treating "kitchen" as a nonexistent appliance.
+    if where and explicit_rooms and not explicit_assets:
+        if len(explicit_rooms)>1:
+            names=", ".join(x["canonical_name"] for x in explicit_rooms)
+            return (f"Multiple spaces match: {names}. Which one do you mean?",
+                    None,"MEMORY_GROUNDED_ROOM_AMBIGUOUS")
+        room=explicit_rooms[0]
+        path=_place_path(s,house,room["id"])
+        if not path:
+            reply=f"{room['canonical_name']} is registered, but no parent location is confirmed."
+        else:
+            label=" → ".join(p["canonical_name"] for p in path)
+            reply=(f"Last recorded hierarchy for {room['canonical_name']}: {label}. "
+                   "This is configured household information, not live position tracking.")
+        return reply,"room:"+str(room["id"]),"MEMORY_GROUNDED_ROOM_LOCATION"
 
     requested=_extract_unknown(utterance)
     # An explicitly mentioned asset always takes precedence over old conversation.
