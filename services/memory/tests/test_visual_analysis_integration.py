@@ -94,9 +94,9 @@ def test_owner_queues_worker_prepares_and_findings_remain_pending(client,auth):
     from app import db
     with db() as conn:
         observation=conn.execute(
-            "SELECT review_status FROM memory_observations WHERE household_id=%s AND id=%s",
+            "SELECT status FROM memory_observations WHERE household_id=%s AND id=%s",
             (os.environ["HOMEOS_HOUSEHOLD_ID"],observation_id)).fetchone()
-        assert observation["review_status"]=="PENDING"
+        assert observation["status"]=="PENDING"
 
 def test_queue_requires_media_attached_to_session_and_is_idempotent(client,auth):
     owner=auth["owner"]
