@@ -144,6 +144,16 @@ with tempfile.TemporaryDirectory() as temporary:
         assert len(added)==1
         assert added[0].room_id==kitchen_id
 
+    # A second photo cannot silently register the same named asset twice.
+    duplicate_id=create_observations(kitchen_graph,["microwave"])[0]
+    conflict=client.post(f"/api/memory/visual/{duplicate_id}/resolve",headers=headers,
+        json={"decision":"REGISTER_ASSET","corrected_name":"Microwave",
+              "location_entity_id":str(kitchen_graph)})
+    assert conflict.status_code==409,conflict.text
+    discard=client.post(f"/api/memory/visual/{duplicate_id}/resolve",headers=headers,
+        json={"decision":"REJECT","note":"Already registered from the first photo"})
+    assert discard.status_code==200,discard.text
+
     jarvis=client.post("/api/chat",headers=headers,json={"text":"Where is the microwave?"})
     assert jarvis.status_code==200,jarvis.text
     assert jarvis.json()["intent"]=="MEMORY_LOCATION"
