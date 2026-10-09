@@ -1,0 +1,80 @@
+# Compose project and volume keys deliberately match the existing M2C deployment.
+# Never remove these volumes. Back up PostgreSQL before changing the running stack.
+name: homeos
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: homeos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set to the SAME password used by the current HomeOS database}
+      POSTGRES_DB: homeos
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homeos -d homeos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+  api:
+    build:
+      context: ./apps/homeos
+    environment:
+      DATABASE_URL: postgresql+psycopg://homeos:${POSTGRES_PASSWORD:?Set the existing HomeOS database password}@db:5432/homeos
+      REDIS_URL: redis://redis:6379/0
+      HOMEOS_DEMO_MODE: 'true'
+      PYTHONPATH: /srv/homeos
+      HOMEOS_MEMORY_ENABLED: ${HOMEOS_MEMORY_ENABLED:-false}
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    volumes:
+      - uploads:/srv/homeos/uploads
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      retries: 10
+  web:
+    build:
+      context: ./apps/homeos/apps/web
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      api: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:3000:3000"
+  memory:
+    profiles: ["memory"]
+    build:
+      context: ./services/memory
+    environment:
+      DATABASE_URL: postgresql://homeos:${POSTGRES_PASSWORD:?Set the existing HomeOS database password}@db:5432/homeos
+      HOMEOS_API_TOKEN: ${HOMEOS_API_TOKEN:-}
+      HOMEOS_WORKER_TOKEN: ${HOMEOS_WORKER_TOKEN:-}
+      HOMEOS_HOUSEHOLD_ID: ${HOMEOS_HOUSEHOLD_ID:-}
+      PRIVATE_MEDIA_ROOT: /srv/memory/private_media
+      HOMEOS_VISION_API_KEY: ${HOMEOS_VISION_API_KEY:-}
+      HOMEOS_VISION_MODEL: ${HOMEOS_VISION_MODEL:-gpt-4.1-mini}
+    depends_on:
+      db: {condition: service_healthy}
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - memory_media:/srv/memory/private_media
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  memory_media:

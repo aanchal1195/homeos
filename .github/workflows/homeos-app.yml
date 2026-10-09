@@ -1,0 +1,108 @@
+name: HomeOS M2C Application
+on:
+  push:
+    paths:
+      - "apps/homeos/**"
+      - "compose.yaml"
+      - ".github/workflows/homeos-app.yml"
+  pull_request:
+    paths:
+      - "apps/homeos/**"
+      - "compose.yaml"
+      - ".github/workflows/homeos-app.yml"
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/homeos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: PYTHONPATH=. pytest -q
+      - name: Verify historical Alembic revisions install cleanly from scratch
+        env:
+          HOMEOS_AUTO_CREATE_SQLITE: 'false'
+          DATABASE_URL: sqlite:////tmp/homeos-legacy-alembic-test.sqlite
+        run: |
+          PYTHONPATH=. alembic upgrade head
+          PYTHONPATH=. alembic current | grep '0004'
+          python - <<'PY'
+          import sqlite3
+          db=sqlite3.connect('/tmp/homeos-legacy-alembic-test.sqlite')
+          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links'):
+              assert db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(),table
+          columns={r[1] for r in db.execute('PRAGMA table_info(assets)')}
+          assert {'room_id','zone_id','asset_type'}.issubset(columns),columns
+          PY
+  postgres-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: homeos_test
+          POSTGRES_USER: homeos
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U homeos -d homeos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DATABASE_URL: postgresql+psycopg://homeos:testpassword@localhost:5432/homeos_test
+      MEMORY_DATABASE_URL: postgresql://homeos:testpassword@localhost:5432/homeos_test
+      HOMEOS_TEST_MODE: 'true'
+      HOMEOS_HOUSEHOLD_ID: 11111111-1111-4111-8111-111111111111
+      HOMEOS_API_TOKEN: ci-owner-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r apps/homeos/requirements.txt -r services/memory/requirements.txt
+      - name: Install the real M2C schema from Alembic 0001 to 0004
+        run: |
+          cd apps/homeos
+          PYTHONPATH=. alembic upgrade head
+          PYTHONPATH=. alembic current | grep '0004'
+      - name: Install the graph and visual memory tables
+        run: |
+          for sql in services/memory/schema/00*.sql; do
+            psql "$MEMORY_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$sql"
+          done
+      - name: Verify M2C graph import against the real schema
+        env:
+          PYTHONPATH: ${{ github.workspace }}/services/memory
+        run: python scripts/verify-memory-projection-ci.py
+      - name: Verify JARVIS retrieval using the real M2C API and graph
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+        run: python scripts/verify-jarvis-ci.py
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/homeos/apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+  compose-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose --env-file .env config --quiet
+      - run: |
+          # Guard compatibility with the old named Docker volumes.
+          docker compose --env-file .env config --volumes | grep -Fx pgdata
+          docker compose --env-file .env config --volumes | grep -Fx redisdata
+          docker compose --env-file .env config --volumes | grep -Fx uploads
