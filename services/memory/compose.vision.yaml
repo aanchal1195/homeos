@@ -1,0 +1,18 @@
+# Opt-in M3D worker; combine with compose.yaml, never replace the base stack.
+services:
+  vision-worker:
+    profiles: ["vision"]
+    build: .
+    command: ["python", "-m", "multimodal_runtime"]
+    environment:
+      DATABASE_URL: postgresql://homeos:${POSTGRES_PASSWORD}@db:5432/homeos
+      HOMEOS_HOUSEHOLD_ID: ${HOMEOS_HOUSEHOLD_ID:?Set HOMEOS_HOUSEHOLD_ID}
+      HOMEOS_VISION_API_KEY: ${HOMEOS_VISION_API_KEY:?Set HOMEOS_VISION_API_KEY}
+      HOMEOS_VISION_MODEL: ${HOMEOS_VISION_MODEL:-gpt-4.1-mini}
+      PRIVATE_MEDIA_ROOT: /srv/memory/private_media
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - private_media:/srv/memory/private_media
+    restart: unless-stopped
