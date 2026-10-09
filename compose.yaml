@@ -36,6 +36,8 @@ services:
       PYTHONPATH: /srv/homeos
       HOMEOS_MEMORY_ENABLED: ${HOMEOS_MEMORY_ENABLED:-false}
       HOMEOS_PRIVATE_MEMORY_MEDIA_ROOT: /srv/homeos/private_memory_media
+      HOMEOS_MEMORY_INTERNAL_URL: http://memory:8001
+      HOMEOS_MEMORY_SERVICE_TOKEN: ${HOMEOS_API_TOKEN:-}
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
