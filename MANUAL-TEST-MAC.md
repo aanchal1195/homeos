@@ -15,11 +15,10 @@ Requirements: Docker Desktop running, Docker Compose **v2.24+** (for the Compose
 docker compose version
 git clone https://github.com/aanchal1195/homeos.git homeos-sandbox-source
 cd homeos-sandbox-source
-cp .env.example .env.smoke
+cp .env.smoke.example .env.smoke
 ```
 
-Edit `.env.smoke` locally: set a **new disposable** `POSTGRES_PASSWORD`
-(different from the live HomeOS password). Leave
+Edit `.env.smoke` locally: replace the placeholder with a **new disposable** `POSTGRES_PASSWORD` (different from the live HomeOS password). Leave
 `HOMEOS_MEMORY_ENABLED=false`, `HOMEOS_JARVIS_AGENT_ENABLED=false`,
 `HOMEOS_CHAT_EXTERNAL_ENABLED=false`, and model API keys empty initially.
 **Never** commit or paste the `.env.smoke` file or its secrets.
