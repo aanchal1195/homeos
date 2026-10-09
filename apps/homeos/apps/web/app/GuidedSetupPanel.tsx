@@ -143,7 +143,7 @@ export default function GuidedSetupPanel({memberId,floors,onUpdated}:{
       ...(old[id]||{name:suggestion.name,floor_id:'',room_id:''}),...patch
     }}));
   };
-  const acceptTypes='image/jpeg,image/png,image/webp';
+  const acceptTypes='image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
   return <section className="guidedSetup" aria-label="AI guided home setup">
     <div className="guidedHeading"><div><strong>JARVIS · Guided home discovery</strong>
       <p>Show me the house. I will decide what evidence is missing, then ask one question at a time.</p>
@@ -190,7 +190,7 @@ export default function GuidedSetupPanel({memberId,floors,onUpdated}:{
           placeholder="e.g. Guest Bedroom" maxLength={100}
           onChange={e=>setRoomHint(e.target.value)}/></label>}
       </div>
-      <label>Private {kind==='ROOM_VIDEO'?'video (MP4/MOV/WebM, max 35 MB, 90 seconds)':'image (JPEG/PNG/WebP, max 15 MB)'}
+      <label>Private {kind==='ROOM_VIDEO'?'video (MP4/MOV/WebM, max 35 MB, 90 seconds)':'image (JPEG/PNG/WebP/HEIC/HEIF, max 15 MB)'}
         <input ref={inputRef} type="file"
           accept={kind==='ROOM_VIDEO'?'video/mp4,video/quicktime,video/webm':acceptTypes}
           onChange={e=>setFile(e.target.files?.[0]||null)}/>
