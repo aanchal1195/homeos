@@ -107,3 +107,17 @@ def test_location_queries_never_invent_an_unregistered_asset():
     assert _subject('fridge kahan hai?')=='refrigerator'
     assert _subject('Where is the microwave?')=='microwave'
     assert _subject('Please assign the cook dinner') is None
+
+def test_visual_review_requires_owner_and_configured_graph():
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    observation='11111111-1111-4111-8111-111111111111'
+    assert call('GET','/api/memory/visual/pending',maid).status_code==403
+    assert call('GET',f'/api/memory/visual/{observation}/evidence',maid).status_code==403
+    assert call('POST',f'/api/memory/visual/{observation}/resolve',maid,
+      json={'decision':'REJECT'}).status_code==403
+    # SQLite is never used as an authoritative graph and cannot approve photos.
+    assert call('GET','/api/memory/visual/pending',owner).status_code==503
+    assert call('POST',f'/api/memory/visual/{observation}/resolve',owner,
+      json={'decision':'REJECT'}).status_code==503
