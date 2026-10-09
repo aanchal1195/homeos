@@ -519,6 +519,60 @@ def _projection_if_active(s,m):
         project(s,m.household_id)
 
 
+def _attest_guided_asset(s,m,item,suggestion,asset):
+    """After operational+graph projection, attach owner-approved media provenance.
+
+    Runs inside the SAME owner approval transaction and supersedes any prior
+    SYSTEM or OWNER location only for this explicitly selected asset/room.
+    """
+    from app.memory_bridge import supported,_run,_uuid
+    if not supported(s):return
+    house=_uuid(m.household_id)
+    aid=_run(s,"""SELECT entity_id FROM memory_legacy_links WHERE
+      household_id=:house AND legacy_type='asset' AND legacy_id=:id""",
+      house=house,id=asset.id).scalar_one_or_none()
+    rid=_run(s,"""SELECT entity_id FROM memory_legacy_links WHERE
+      household_id=:house AND legacy_type='room' AND legacy_id=:id""",
+      house=house,id=asset.room_id).scalar_one_or_none()
+    if not aid or not rid:
+        raise HTTPException(503,"Approved asset was not linked into Home Memory")
+    # Read a zone link only if the registered asset actually specifies a zone.
+    if asset.zone_id:
+        zone=_run(s,"""SELECT entity_id FROM memory_legacy_links WHERE
+          household_id=:house AND legacy_type='zone' AND legacy_id=:id""",
+          house=house,id=asset.zone_id).scalar_one_or_none()
+        if zone:rid=zone
+    _run(s,"SELECT id FROM memory_entities WHERE household_id=:house AND id=:id FOR UPDATE",
+         house=house,id=aid).first()
+    old=_run(s,"""SELECT id,object_id,valid_from FROM memory_assertions WHERE
+       household_id=:house AND subject_id=:id AND predicate='LOCATED_IN'
+       AND verification_status='CONFIRMED' AND valid_until IS NULL FOR UPDATE""",
+       house=house,id=aid).mappings().first()
+    ref=f"guided-setup:{item.id}:{suggestion['id']}"
+    ev=_run(s,"""INSERT INTO memory_evidence(household_id,source_type,source_ref,metadata)
+       VALUES(:house,'OWNER',:ref,CAST(:meta AS jsonb)) RETURNING id""",
+       house=house,ref=ref,meta=json.dumps({
+          "reviewer_member_id":m.id,"media_kind":item.media_kind,
+          "guided_evidence_id":item.id,"suggestion_id":suggestion["id"]})).scalar_one()
+    if old:
+        _run(s,"""UPDATE memory_assertions SET verification_status='SUPERSEDED',
+            valid_until=GREATEST(clock_timestamp(),valid_from+interval '1 microsecond')
+            WHERE household_id=:house AND id=:id""",house=house,id=old["id"])
+    _run(s,"""INSERT INTO memory_assertions
+      (household_id,subject_id,predicate,object_id,evidence_id,
+       verification_status,supersedes_id,valid_from)
+      VALUES(:house,:asset,'LOCATED_IN',:room,:evidence,'CONFIRMED',:old,clock_timestamp())""",
+      house=house,asset=aid,room=rid,evidence=ev,
+      old=old["id"] if old else None)
+    _run(s,"""INSERT INTO memory_events
+      (household_id,event_type,subject_id,payload,idempotency_key)
+      VALUES(:house,'GUIDED_ASSET_VERIFIED',:asset,CAST(:payload AS jsonb),:ref)""",
+      house=house,asset=aid,payload=json.dumps({
+        "evidence_id":item.id,"suggestion_id":suggestion["id"],
+        "from":str(old["object_id"]) if old else None,"to":str(rid),
+        "reviewer_member_id":m.id}),ref=ref)
+
+
 @app.post("/api/guided/evidence/{evidence_id}/decide")
 def guided_decide(evidence_id:str,body:DecisionIn,m=Depends(actor),s:Session=Depends(db)):
     require_owner(m)
@@ -578,8 +632,11 @@ def guided_decide(evidence_id:str,body:DecisionIn,m=Depends(actor),s:Session=Dep
                 s.add(made);s.flush()
         if made is None:raise HTTPException(422,"Unsupported suggestion kind")
         suggested["applied_id"]=made.id
-        # If memory is active, update graph transactionally via existing projection.
+        # If memory is active, sync through the existing projection, then
+        # replace the imported asset location with explicit OWNER provenance.
         _projection_if_active(s,m)
+        if suggested["kind"]=="ASSET":
+            _attest_guided_asset(s,m,item,suggested,made)
         suggested["status"]="ACCEPTED"
         audit(s,m,"guided.suggestion.accepted",
              f"evidence={item.id};kind={suggested['kind']};record={made.id}")
