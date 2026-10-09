@@ -90,6 +90,7 @@ function MemoryPanel({memberId}:{memberId:string}){
   const [message,setMessage]=useState('Memory graph is not yet synchronized.');
   const [busy,setBusy]=useState(false);
   const [chosen,setChosen]=useState('');
+  const [filter,setFilter]=useState('');
   const [timeline,setTimeline]=useState<MemoryHistory|null>(null);
   const [historyError,setHistoryError]=useState('');
   useEffect(()=>{
@@ -114,7 +115,7 @@ function MemoryPanel({memberId}:{memberId:string}){
       <button className="secondary" disabled={busy} onClick={synchronize}>{busy?'Synchronizing…':'Sync virtual house'}</button>
       {message&&<p className="memoryNote" role="status">{message}</p>}
       {state&&<><p className="memoryNote">{state.entities.length} registered entities: {Object.entries(state.counts).map(([k,v])=>`${k}: ${v}`).join(' · ')}</p>
-      <div className="memoryList">{state.entities.slice(0,24).map(x=><div key={x.id}><b>{x.name}</b><small>{x.type} · {x.location||'No recorded location'} · {x.source||'M2C source'}</small>{x.type==='ASSET'&&<button type="button" className="historyButton" aria-label={'View verified history for '+x.name} onClick={()=>setChosen(v=>v===x.id?'':x.id)}>{chosen===x.id?'Close history':'View history'}</button>}</div>)}</div>
+      <input type="search" aria-label="Search registered Home Memory entities" placeholder="Search rooms and assets…" value={filter} onChange={e=>setFilter(e.target.value)}/><div className="memoryList">{state.entities.filter(x=>x.name.toLowerCase().includes(filter.trim().toLowerCase())).map(x=><div key={x.id}><b>{x.name}</b><small>{x.type} · {x.location||'No recorded location'} · {x.source||'M2C source'}</small>{x.type==='ASSET'&&<button type="button" className="historyButton" aria-label={'View verified history for '+x.name} onClick={()=>setChosen(v=>v===x.id?'':x.id)}>{chosen===x.id?'Close history':'View history'}</button>}</div>)}</div>
       {chosen&&<section className="memoryHistory" aria-live="polite">
         <h4>Asset evidence &amp; history</h4>
         {historyError&&<p role="alert" className="error">{historyError}</p>}
