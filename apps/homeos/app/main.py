@@ -794,7 +794,9 @@ def context(m:Member=Depends(actor),s:Session=Depends(db)):
 def sync_memory(m:Member=Depends(actor),s:Session=Depends(db)):
     require_owner(m)
     from app.memory_bridge import project
+    from app.guided_setup import import_approved_provenance
     result=project(s,m.household_id)
+    result["guided_owner_reviews_imported"]=import_approved_provenance(s,m)
     audit(s,m,'memory.projection.completed',str(result['counts']))
     s.commit()
     return result
