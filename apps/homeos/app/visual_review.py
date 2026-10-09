@@ -184,16 +184,19 @@ def _confirm_asset_location(s,house,entity_id,location_id,observation_id,m):
     ev=_run(s, """INSERT INTO memory_evidence(household_id,source_type,source_ref,metadata)
        VALUES(:house,'OWNER',:ref,CAST(:meta AS jsonb)) RETURNING id""",
        house=house,ref=ref,meta=json.dumps({"reviewer_member_id":m.id,"observation_id":str(observation_id)})).scalar_one()
-    if not old or old["object_id"] != location_id:
-        if old:
-            _run(s, """UPDATE memory_assertions SET verification_status='SUPERSEDED',
-               valid_until=GREATEST(clock_timestamp(),valid_from + interval '1 microsecond')
-               WHERE household_id=:house AND id=:id""",house=house,id=old["id"])
-        _run(s, """INSERT INTO memory_assertions
-           (household_id,subject_id,predicate,object_id,evidence_id,verification_status,supersedes_id)
-           VALUES(:house,:subject,'LOCATED_IN',:location,:ev,'CONFIRMED',:previous)""",
-           house=house,subject=entity_id,location=location_id,ev=ev,
-           previous=old["id"] if old else None)
+    # An owner confirming the SAME location still deserves an OWNER-sourced
+    # current assertion. Never leave its review evidence detached from graph facts.
+    if old:
+        _run(s, """UPDATE memory_assertions SET verification_status='SUPERSEDED',
+           valid_until=GREATEST(clock_timestamp(),valid_from + interval '1 microsecond')
+           WHERE household_id=:house AND id=:id""",house=house,id=old["id"])
+    _run(s, """INSERT INTO memory_assertions
+       (household_id,subject_id,predicate,object_id,evidence_id,verification_status,supersedes_id,
+        valid_from)
+       VALUES(:house,:subject,'LOCATED_IN',:location,:ev,'CONFIRMED',:previous,
+         clock_timestamp())""",
+       house=house,subject=entity_id,location=location_id,ev=ev,
+       previous=old["id"] if old else None)
     detail={"observation_id":str(observation_id),"from":str(old["object_id"]) if old else None,
             "to":str(location_id),"reviewer_member_id":m.id,
             "same_location":bool(old and old["object_id"]==location_id)}
