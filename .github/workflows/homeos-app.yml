@@ -141,5 +141,5 @@ jobs:
           docker compose --env-file .env config --volumes | grep -Fx uploads
       - name: Validate isolated manual-test project and remapped ports
         run: |
-          docker compose --env-file .env -f compose.yaml -f compose.smoke.yaml config --quiet
-          docker compose --env-file .env -f compose.yaml -f compose.smoke.yaml config --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="homeos-sandbox"; p=lambda n:{str(x["published"]) for x in d["services"][n]["ports"]}; assert p("web")=={"3300"}; assert p("api")=={"8800"}; assert p("memory")=={"8801"}'
+          docker compose --env-file .env -f compose.yaml -f compose.smoke.yaml --profile memory config --quiet
+          docker compose --env-file .env -f compose.yaml -f compose.smoke.yaml --profile memory config --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["name"]=="homeos-sandbox"; p=lambda n:{str(x["published"]) for x in d["services"][n]["ports"]}; assert p("web")=={"3300"}; assert p("api")=={"8800"}; assert p("memory")=={"8801"}'
