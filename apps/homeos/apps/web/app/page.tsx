@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import GuidedSetupPanel from './GuidedSetupPanel';
 
 type Member={id:string;name:string;role:string;language:string};
 type Zone={id:string;name:string;kind:string};
@@ -66,6 +67,8 @@ function SetupWizard({members,memberId,current,state,onIdentity,onRefresh,error,
   const addScope=(e:FormEvent)=>{e.preventDefault();act(async()=>{await api('/api/virtual-house/staff-scopes',memberId,{method:'POST',body:JSON.stringify({...scope,floor_id:scope.floor_id||null,room_id:scope.room_id||null})});})};
   const complete=()=>act(async()=>{await api('/api/setup/complete',memberId,{method:'POST',body:'{}'});await onRefresh()});
   return <main className="onboard wide"><section className="wizardHead"><div><div className="eyebrow">HomeOS · Virtual House</div><h1>Build the house JARVIS will manage.</h1><p>Tasks, maintenance and inspections will resolve against this digital twin.</p></div><div className="modeBadge">SETUP MODE</div></section>
+    {current?.role==='owner'&&<GuidedSetupPanel memberId={memberId} floors={floors} onUpdated={onRefresh}/>}
+    <p className="muted" style={{margin:'0 0 12px'}}>Prefer typing? The original manual setup remains available below.</p>
     <section className="stepper">{['Property','Structure','Rooms','Zones & assets','Staff access','Review'].map((s,i)=><button key={s} onClick={()=>setStep(i+1)} className={step===i+1?'active':''}><span>{i+1}</span>{s}</button>)}</section>
     <section className="wizardGrid"><div className="wizardCard">
       {step===1&&<><h2>1. Property</h2><p className="muted">Create the top-level property record.</p><div className="stack"><label>House name<input value={home.name} onChange={e=>setHome({...home,name:e.target.value})}/></label><label>Property type<select value={home.property_type} onChange={e=>setHome({...home,property_type:e.target.value})}><option value="independent_house">Independent house</option><option value="apartment">Apartment</option><option value="villa">Villa</option></select></label><label>Address label (optional)<input placeholder="e.g. Meerut home" value={home.address_label} onChange={e=>setHome({...home,address_label:e.target.value})}/></label><button className="primary" onClick={saveProperty}>Save & continue</button></div></>}
