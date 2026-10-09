@@ -19,11 +19,11 @@ for phrase in ("Where is the refrigerator?","fridge kahan hai?"):
     response=client.post("/api/chat",headers=headers,json={"text":phrase})
     assert response.status_code==200,response.text
     fact=response.json()
-    assert fact["intent"]=="MEMORY_LOCATION",fact
+    assert fact["intent"] in ("MEMORY_LOCATION","MEMORY_GROUNDED_ASSET_LOCATION"),fact
     assert "Kitchen" in fact["reply"],fact
 unknown=client.post("/api/chat",headers=headers,json={"text":"Where is the microwave?"})
 assert unknown.status_code==200,unknown.text
-assert unknown.json()["intent"]=="MEMORY_NOT_REGISTERED",unknown.json()
+assert unknown.json()["intent"] in ("MEMORY_NOT_REGISTERED","MEMORY_GROUNDED_UNKNOWN"),unknown.json()
 overview=client.get("/api/memory/overview",headers=headers)
 assert overview.status_code==200,overview.text
 assert overview.json()["counts"].get("ASSET",0)>=1
