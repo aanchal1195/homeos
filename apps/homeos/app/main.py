@@ -138,6 +138,40 @@ class Message(Base):
     action_ref:Mapped[Optional[str]]=mapped_column(String,nullable=True)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+class GuidedEvidence(Base):
+    """Private pre-setup photo/video evidence; never authoritative until owner applies."""
+    __tablename__='guided_evidence'
+    id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
+    household_id:Mapped[str]=mapped_column(ForeignKey('households.id'),nullable=False)
+    member_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    media_kind:Mapped[str]=mapped_column(String,nullable=False)
+    room_id:Mapped[Optional[str]]=mapped_column(ForeignKey('rooms.id'),nullable=True)
+    floor_hint:Mapped[str]=mapped_column(String,nullable=False,default='')
+    room_hint:Mapped[str]=mapped_column(String,nullable=False,default='')
+    content_type:Mapped[str]=mapped_column(String,nullable=False)
+    storage_key:Mapped[str]=mapped_column(String,nullable=False)
+    sha256:Mapped[str]=mapped_column(String,nullable=False)
+    byte_size:Mapped[int]=mapped_column(Integer,nullable=False)
+    status:Mapped[str]=mapped_column(String,nullable=False,default='UPLOADED')
+    suggestions_json:Mapped[str]=mapped_column(Text,nullable=False,default='[]')
+    notes_json:Mapped[str]=mapped_column(Text,nullable=False,default='{}')
+    model_version:Mapped[Optional[str]]=mapped_column(String,nullable=True)
+    consent_at:Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True),nullable=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+    analyzed_at:Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True),nullable=True)
+
+
+class GuidedDecision(Base):
+    """Audit the next-step recommendation and whether an external planner was used."""
+    __tablename__='guided_decisions'
+    id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
+    household_id:Mapped[str]=mapped_column(ForeignKey('households.id'),nullable=False)
+    member_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    source:Mapped[str]=mapped_column(String,nullable=False)
+    decision_json:Mapped[str]=mapped_column(Text,nullable=False)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
+
 class AgentRun(Base):
     """Owner-scoped audit for one JARVIS reasoning turn and its tool evidence."""
     __tablename__='agent_runs'
@@ -780,3 +814,4 @@ _import_review_module('app.visual_review')
 _import_review_module('app.photo_inspection')
 _import_review_module('app.memory_history')
 _import_review_module('app.home_manager')
+_import_review_module('app.guided_setup')
