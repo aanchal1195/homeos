@@ -1,4 +1,4 @@
-> **Unified-repository users:** Use [CONSOLIDATION.md](../../../CONSOLIDATION.md) and the **root** `compose.yaml`. The separate-checkout instructions below are retained only for users of the older standalone M2C ZIP. Do not apply both deployment approaches.
+> **Unified-repository users:** Use [CONSOLIDATION.md](../../CONSOLIDATION.md) and the **root** `compose.yaml`. The separate-checkout instructions below are retained only for users of the older standalone M2C ZIP. Do not apply both deployment approaches.
 
 # M3D — Integrating the existing M2C HomeOS with Home Memory Graph
 
