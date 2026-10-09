@@ -138,6 +138,19 @@ class Message(Base):
     action_ref:Mapped[Optional[str]]=mapped_column(String,nullable=True)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+class AgentRun(Base):
+    """Owner-scoped audit for one JARVIS reasoning turn and its tool evidence."""
+    __tablename__='agent_runs'
+    id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
+    household_id:Mapped[str]=mapped_column(ForeignKey('households.id'),nullable=False)
+    member_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    message_id:Mapped[str]=mapped_column(ForeignKey('messages.id'),nullable=False,unique=True)
+    mode:Mapped[str]=mapped_column(String,nullable=False)
+    model:Mapped[str]=mapped_column(String,nullable=False)
+    trace_json:Mapped[str]=mapped_column(Text,nullable=False,default='[]')
+    token_usage:Mapped[int]=mapped_column(Integer,nullable=False,default=0)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+
 class Evidence(Base):
     __tablename__='evidence'
     id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
@@ -672,8 +685,43 @@ def interpret(m,text,s):
 class ChatIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 @app.post('/api/chat')
 def chat(p:ChatIn,m:Member=Depends(actor),s:Session=Depends(db)):
-    reply,action_ref,intent=interpret(m,p.text,s);x=Message(household_id=m.household_id,member_id=m.id,content=p.text,reply=reply,intent=intent,action_ref=action_ref)
-    s.add(x);s.flush();audit(s,m,'chat.message',x.id);s.commit();return {'id':x.id,'reply':reply,'mode':'JARVIS_GROUNDED' if intent.startswith('MEMORY_GROUNDED_') else 'JARVIS_DETERMINISTIC','language':'mixed','intent':intent,'action_ref':action_ref}
+    # The genuine reasoning runtime is explicitly opt-in for privacy. If enabled,
+    # a provider failure never falls through into legacy keyword-triggered writes.
+    from app.agent_runtime import mode_available,run as agent_run
+    result=agent_run(s,m,p.text) if m.role=='owner' and mode_available() else None
+    if result is None:
+        reply,action_ref,intent=interpret(m,p.text,s)
+        result={'reply':reply,'action_ref':action_ref,'intent':intent,
+                'mode':'JARVIS_DETERMINISTIC_FALLBACK',
+                'trace':[],'usage_tokens':0}
+    x=Message(household_id=m.household_id,member_id=m.id,content=p.text,
+              reply=result['reply'],intent=result['intent'],action_ref=result.get('action_ref'))
+    s.add(x);s.flush()
+    if m.role=='owner' and result['mode']!='JARVIS_DETERMINISTIC_FALLBACK':
+        s.add(AgentRun(household_id=m.household_id,member_id=m.id,message_id=x.id,
+            mode=result['mode'],model=os.getenv('HOMEOS_JARVIS_AGENT_MODEL','gpt-4.1-mini'),
+            trace_json=json.dumps(result.get('trace',[]),ensure_ascii=False,default=str),
+            token_usage=result.get('usage_tokens',0)))
+    audit(s,m,'chat.message',x.id)
+    s.commit()
+    return {'id':x.id,'reply':result['reply'],'mode':result['mode'],
+            'language':'mixed','intent':result['intent'],
+            'action_ref':result.get('action_ref'),
+            'sources':[{'id':t['id'],'name':t['name'],'retrieved_at':t['retrieved_at']}
+                       for t in result.get('trace',[]) if not t.get('error')],
+            'error_code':result.get('error_code')}
+
+
+@app.get('/api/chat/agent-trace/{message_id}')
+def agent_trace(message_id:str,m:Member=Depends(actor),s:Session=Depends(db)):
+    require_owner(m)
+    row=s.scalar(select(AgentRun).where(AgentRun.household_id==m.household_id,
+                 AgentRun.member_id==m.id,AgentRun.message_id==message_id))
+    if row is None:
+        raise HTTPException(404,'No agent trace for this household message')
+    return {'message_id':message_id,'mode':row.mode,'model':row.model,
+            'token_usage':row.token_usage,'tools':json.loads(row.trace_json),
+            'created_at':row.created_at.isoformat()}
 
 @app.get('/api/chat/history')
 def history(m:Member=Depends(actor),s:Session=Depends(db)):
