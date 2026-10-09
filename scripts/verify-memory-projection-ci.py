@@ -13,11 +13,13 @@ assert os.getenv("HOMEOS_TEST_MODE") == "true", "Disposable test databases only"
 url = os.environ["MEMORY_DATABASE_URL"]
 house = os.environ["HOMEOS_HOUSEHOLD_ID"]
 uid = lambda: str(uuid.uuid4())
-property_id, floor_id, room_id, asset_id = [uid() for _ in range(4)]
+property_id, floor_id, room_id, asset_id, owner_id = [uid() for _ in range(5)]
 
 with psycopg.connect(url) as conn:
     with conn.transaction():
-        conn.execute("INSERT INTO households(id,name,setup_completed) VALUES(%s,%s,false)",(house,"Integration CI House"))
+        conn.execute("INSERT INTO households(id,name,setup_completed) VALUES(%s,%s,true)",(house,"Integration CI House"))
+        conn.execute("INSERT INTO members(id,household_id,name,role,language) VALUES(%s,%s,%s,%s,%s)",
+                     (owner_id,house,"CI Owner","owner","hinglish"))
         conn.execute("""INSERT INTO properties(id,household_id,name,property_type,address_label)
                         VALUES(%s,%s,%s,%s,%s)""",
                      (property_id,house,"CI property","independent_house",""))
