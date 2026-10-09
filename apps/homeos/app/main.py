@@ -663,3 +663,4 @@ def health():return {'status':'ok','mode':'homeos-jarvis-m2c-contextual','versio
 from importlib import import_module as _import_review_module
 _import_review_module('app.visual_review')
 _import_review_module('app.photo_inspection')
+_import_review_module('app.memory_history')
