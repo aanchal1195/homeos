@@ -589,7 +589,13 @@ def interpret(m,text,s):
         return ('Virtual house setup abhi complete nahi hai. Pehle property, floors, rooms aur staff access configure karein.' if hi else
                 'Virtual house setup is not complete yet. Configure the property, floors, rooms, and staff access first.'),None,'SETUP_REQUIRED'
 
-    # Read-only questions are answered first from the actual household context.
+    # M4A read-only, tenant-scoped grounded conversation runs before legacy
+    # phrase handlers. It cannot write or delegate arbitrary SQL to a model.
+    from app.grounded_jarvis import answer as grounded_answer
+    grounded=grounded_answer(s,m,text)
+    if grounded:return grounded
+
+    # Legacy fallback preserves existing deterministic operational requests.
     from app.memory_bridge import memory_location_answer
     graph_fact=memory_location_answer(s,m,text,hi)
     if graph_fact:return graph_fact
@@ -624,7 +630,7 @@ class ChatIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 @app.post('/api/chat')
 def chat(p:ChatIn,m:Member=Depends(actor),s:Session=Depends(db)):
     reply,action_ref,intent=interpret(m,p.text,s);x=Message(household_id=m.household_id,member_id=m.id,content=p.text,reply=reply,intent=intent,action_ref=action_ref)
-    s.add(x);s.flush();audit(s,m,'chat.message',x.id);s.commit();return {'id':x.id,'reply':reply,'mode':'JARVIS_DETERMINISTIC','language':'mixed','intent':intent,'action_ref':action_ref}
+    s.add(x);s.flush();audit(s,m,'chat.message',x.id);s.commit();return {'id':x.id,'reply':reply,'mode':'JARVIS_GROUNDED' if intent.startswith('MEMORY_GROUNDED_') else 'JARVIS_DETERMINISTIC','language':'mixed','intent':intent,'action_ref':action_ref}
 
 @app.get('/api/chat/history')
 def history(m:Member=Depends(actor),s:Session=Depends(db)):
