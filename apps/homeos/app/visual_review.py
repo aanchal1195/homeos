@@ -234,7 +234,7 @@ def resolve_visual_review(observation_id:uuid.UUID,body:VisualDecision,
                     and existing_asset.zone_id==zone_id):
                     raise HTTPException(409,"Asset already registered here; review the existing asset instead")
             asset=Asset(id=uid(),household_id=m.household_id,room_id=room_id,
-                        zone_id=zone_id,name=name,asset_type=body.asset_type,status="OK")
+                        zone_id=zone_id,name=name,asset_type=body.asset_type,status="UNKNOWN")
             s.add(asset)
             s.flush()
             project(s,m.household_id)
