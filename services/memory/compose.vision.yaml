@@ -1,0 +1,22 @@
+# Opt-in M3D worker overlay for unified ROOT HomeOS Compose.
+# From repository root: docker compose -f compose.yaml -f services/memory/compose.vision.yaml --profile vision up -d --build vision-worker
+# Keep the project name homeos and use the existing shared memory_media volume.
+# The worker consumes prepared staged jobs; it is NOT the existing direct photo UI endpoint.
+services:
+  vision-worker:
+    profiles: ["vision"]
+    build:
+      context: ./services/memory
+    command: ["python", "-m", "multimodal_runtime"]
+    environment:
+      DATABASE_URL: postgresql://homeos:${POSTGRES_PASSWORD}@db:5432/homeos
+      HOMEOS_HOUSEHOLD_ID: ${HOMEOS_HOUSEHOLD_ID:?Set HOMEOS_HOUSEHOLD_ID}
+      HOMEOS_VISION_API_KEY: ${HOMEOS_VISION_API_KEY:?Set HOMEOS_VISION_API_KEY}
+      HOMEOS_VISION_MODEL: ${HOMEOS_VISION_MODEL:-gpt-4.1-mini}
+      PRIVATE_MEDIA_ROOT: /srv/memory/private_media
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - memory_media:/srv/memory/private_media
+    restart: unless-stopped

@@ -45,5 +45,15 @@ jobs:
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/003_visual_analysis.sql
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/004_staged_visual_worker.sql
       - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/005_visual_review.sql
-      - run: python -m compileall -q app.py graph_routes.py visual_routes.py vision_analysis.py visual_analysis_routes.py m2c_projection.py tests
+      - run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema/005_multimodal_worker.sql
+      - run: python -m compileall -q app.py graph_routes.py visual_routes.py vision_analysis.py visual_analysis_routes.py m2c_projection.py multimodal_*.py tests
       - run: pytest -q tests
+      - name: Validate optional root Compose overlay for the vision worker
+        env:
+          POSTGRES_PASSWORD: ci-test-password
+          HOMEOS_HOUSEHOLD_ID: 11111111-1111-4111-8111-111111111111
+          HOMEOS_VISION_API_KEY: ci-not-a-real-key
+          HOMEOS_API_TOKEN: ci-owner-token
+        run: |
+          cd ../..
+          docker compose -f compose.yaml -f services/memory/compose.vision.yaml --profile vision config --quiet
