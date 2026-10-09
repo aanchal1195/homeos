@@ -21,8 +21,7 @@ planner, **not an unrestricted autonomous home-mapping agent**.
 
 ### Media and analysis
 
-- JPEG/PNG/WebP floor plans and room photos: **15 MiB max**, encoding verified
-  with Pillow, maximum 40 million pixels.
+- JPEG/PNG/WebP/**HEIC/HEIF** floor plans and room photos: **15 MiB max**, actual image encoding verified with Pillow and libheif, maximum 40 million pixels. iPhone Photos/Safari may misreport MIME (e.g., image/jpeg for HEIC); the backend detects the decoded format rather than trusting the filename or browser MIME. Valid HEIC originals remain private and unchanged, while preview/AI analysis receive a reduced JPEG rendering. Unsupported ProRAW/DNG files need export to JPEG/HEIC first.
 - MP4/MOV/WebM walkthroughs: **35 MiB max**, **90 seconds max**, ffprobe
   validation and at most three downscaled ffmpeg frames sent to the provider.
 - Media is streamed to a private file under the existing **uploads** volume,
