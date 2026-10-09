@@ -256,7 +256,7 @@ def _extract_unknown(utterance):
 
 def _hinglish(utterance):
     u=norm(utterance)
-    return bool(re.search(r"[\\u0900-\\u097f]",utterance)) or any(
+    return bool(re.search(r"[\u0900-\u097f]",utterance)) or any(
         word_match(word,u) for word in
         ("kahan","kahaan","kidhar","hai","hain","kya","kaun","wahan","abhi","kab","rakha"))
 
