@@ -33,11 +33,11 @@ jobs:
           DATABASE_URL: sqlite:////tmp/homeos-legacy-alembic-test.sqlite
         run: |
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0004'
+          PYTHONPATH=. alembic current | grep '0005'
           python - <<'PY'
           import sqlite3
           db=sqlite3.connect('/tmp/homeos-legacy-alembic-test.sqlite')
-          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links'):
+          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans'):
               assert db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(),table
           columns={r[1] for r in db.execute('PRAGMA table_info(assets)')}
           assert {'room_id','zone_id','asset_type'}.issubset(columns),columns
@@ -68,7 +68,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r apps/homeos/requirements.txt -r services/memory/requirements.txt
-      - name: Install the real M2C schema from Alembic 0001 to 0004
+      - name: Install the real M2C schema from Alembic 0001 to 0005
         run: |
           cd apps/homeos
           PYTHONPATH=. alembic upgrade head
