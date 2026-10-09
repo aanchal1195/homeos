@@ -356,7 +356,7 @@ function HomeManagerPanel({memberId,members,state,revision=0,onAssigned}:{member
   const rooms=(state?.property?.floors||[]).flatMap(f=>f.rooms.map(r=>({id:r.id,name:r.name,floor:f.name})));
   const maids=members.filter(m=>m.role==='maid');
   const [roomId,setRoomId]=useState(''),[assigneeId,setAssigneeId]=useState('');
-  const [instruction,setInstruction]=useState(''),[plans,setPlans]=useState<ManagerPlan[]>([]);
+  const [instruction,setInstruction]=useState(''),[dueDate,setDueDate]=useState(''),[plans,setPlans]=useState<ManagerPlan[]>([]);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
   const refresh=async()=>{
     try{const data:{plans:ManagerPlan[]}=await api('/api/home-manager/plans',memberId);
@@ -370,7 +370,7 @@ function HomeManagerPanel({memberId,members,state,revision=0,onAssigned}:{member
       const selectedRoom=roomId||rooms[0]?.id,selectedAssignee=assigneeId||maids[0]?.id;
       if(!selectedRoom||!selectedAssignee){setError('Choose a room and a permitted maid.');return}
       await api('/api/home-manager/plans',memberId,{method:'POST',body:JSON.stringify({
-        room_id:selectedRoom,assignee_id:selectedAssignee,instruction:instruction.trim()
+        room_id:selectedRoom,assignee_id:selectedAssignee,instruction:instruction.trim(),due_date:dueDate||null
       })});
       setMessage('Plan drafted. No work assigned yet; confirm below.');
       await refresh();
@@ -405,6 +405,9 @@ function HomeManagerPanel({memberId,members,state,revision=0,onAssigned}:{member
       <label>Instructions (optional)
         <input value={instruction} maxLength={600} placeholder="E.g. clean the sink and floor; photo required"
           onChange={e=>setInstruction(e.target.value)}/>
+      </label>
+      <label>Due date (optional, defaults to today)
+        <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)}/>
       </label>
       <button className="secondary" disabled={busy||!rooms.length||!maids.length} onClick={propose}>
         {busy?'Working…':'Draft cleaning plan'}
