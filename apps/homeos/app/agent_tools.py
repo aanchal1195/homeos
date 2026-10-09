@@ -63,19 +63,21 @@ def find_entities(s,m,arg:FindArgs):
     from app.main import Room, Asset, Member
     _owner(m)
     q=arg.query.casefold().strip()
-    # Match recorded names, not speculative embeddings; ambiguity is explicit.
+    # Server-side, escaped name lookup rather than dumping the full inventory.
+    # SQLAlchemy binds the wildcard safely; ambiguity is explicit.
     result=[]
+    pattern="%"+q.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%"
     classes=((Room,"room"),(Asset,"asset"),(Member,"staff"))
     for cls,kind in classes:
         if kind=="staff" and q in ("everyone","everything"):
             continue
-        entries=s.scalars(select(cls).where(cls.household_id==m.household_id).order_by(cls.name).limit(400)).all()
+        entries=s.scalars(select(cls).where(
+            cls.household_id==m.household_id,
+            cls.name.ilike(pattern,escape="\\")).order_by(cls.name,cls.id).limit(20)).all()
         for item in entries:
-            if q in item.name.casefold() or (kind=="asset" and
-                 q in item.name.casefold().split()):
-                data={"id":item.id,"kind":kind,"name":item.name}
-                if kind=="staff":data["role"]=item.role
-                result.append(data)
+            data={"id":item.id,"kind":kind,"name":item.name}
+            if kind=="staff":data["role"]=item.role
+            result.append(data)
     # Registered but unresolved does not mean physically absent.
     return {"query":arg.query,"matches":result[:14],"truncated":len(result)>14,
             "unknown_if_empty":"No matching registered entity; physical presence is unverified.",
