@@ -9,6 +9,7 @@ on:
       - "scripts/verify-jarvis-journey-ci.py"
       - "scripts/verify-home-manager-ci.py"
       - "scripts/verify-reasoning-agent-ci.py"
+      - "scripts/verify-guided-setup-ci.py"
       - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
@@ -118,6 +119,12 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-reasoning-agent-ci.py
+      - name: Verify private guided onboarding photo -> owner evidence -> real graph -> JARVIS (scripted AI)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+          HOMEOS_JARVIS_AGENT_ENABLED: 'false'
+        run: python scripts/verify-guided-setup-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
