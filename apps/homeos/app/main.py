@@ -110,6 +110,23 @@ class Task(Base):
     source:Mapped[str]=mapped_column(String,default='MANUAL')
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+class HomeManagerPlan(Base):
+    """Human-confirmed, single-action household plan; operational Task is authoritative."""
+    __tablename__='home_manager_plans'
+    id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
+    household_id:Mapped[str]=mapped_column(ForeignKey('households.id'),nullable=False)
+    owner_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    assignee_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    room_id:Mapped[str]=mapped_column(ForeignKey('rooms.id'),nullable=False)
+    plan_kind:Mapped[str]=mapped_column(String,nullable=False,default='CLEAN_ROOM')
+    task_title:Mapped[str]=mapped_column(String,nullable=False)
+    instruction:Mapped[str]=mapped_column(Text,nullable=False,default='')
+    due_date:Mapped[str]=mapped_column(String,nullable=False)
+    status:Mapped[str]=mapped_column(String,nullable=False,default='PROPOSED')
+    task_id:Mapped[Optional[str]]=mapped_column(ForeignKey('tasks.id'),nullable=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+    confirmed_at:Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True),nullable=True)
+
 class Message(Base):
     __tablename__='messages'
     id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
@@ -589,7 +606,39 @@ def interpret(m,text,s):
         return ('Virtual house setup abhi complete nahi hai. Pehle property, floors, rooms aur staff access configure karein.' if hi else
                 'Virtual house setup is not complete yet. Configure the property, floors, rooms, and staff access first.'),None,'SETUP_REQUIRED'
 
-    # Read-only questions are answered first from the actual household context.
+    # M4B: one narrow natural-language draft action. Even explicit planning
+    # never assigns work; the owner must confirm in the Home Manager panel.
+    if m.role=='owner' and re.search(r'\b(plan|draft|schedule)\b',low) and any(
+        word in low for word in ('clean','cleaning','saaf','safai','साफ','सफाई')):
+        if re.match(r'^\s*(what|which|show|tell|how|where|क्या|कैसा)\b',low):
+            return ('No new cleaning plan has been drafted. Open Home Manager to review existing plans.',
+                    None,'HOME_MANAGER_PLAN_QUERY')
+        if any(word in low for word in ('tomorrow','kal','अगले','कल')):
+            return ('Specify the due date in Home Manager before confirming; I did not schedule anything.',
+                    None,'HOME_MANAGER_CLARIFY_DATE')
+        staff=find_member(s,m,text)
+        room=find_room(s,m,text)
+        if not room:
+            return ('Which exact configured room should the cleaning plan cover?',
+                    None,'HOME_MANAGER_CLARIFY_ROOM')
+        if not staff:
+            return ('Which maid should receive this plan? No task has been assigned.',
+                    None,'HOME_MANAGER_CLARIFY_ASSIGNEE')
+        from app.home_manager import RoomCleaningPlanIn, propose_room_cleaning
+        proposed=propose_room_cleaning(RoomCleaningPlanIn(
+            room_id=room.id,assignee_id=staff.id,
+            instruction='Owner-requested via JARVIS: '+text[:350]),m,s)
+        return (f"Drafted {proposed['title']} for {staff.name} (due today). "
+                "Open Home Manager and confirm to assign. No task has been assigned yet.",
+                proposed['id'],'HOME_MANAGER_PLAN_DRAFTED')
+
+    # M4A read-only, tenant-scoped grounded conversation runs before legacy
+    # phrase handlers. It cannot write or delegate arbitrary SQL to a model.
+    from app.grounded_jarvis import answer as grounded_answer
+    grounded=grounded_answer(s,m,text)
+    if grounded:return grounded
+
+    # Legacy fallback preserves existing deterministic operational requests.
     from app.memory_bridge import memory_location_answer
     graph_fact=memory_location_answer(s,m,text,hi)
     if graph_fact:return graph_fact
@@ -624,7 +673,7 @@ class ChatIn(BaseModel): text:str=Field(min_length=1,max_length=2000)
 @app.post('/api/chat')
 def chat(p:ChatIn,m:Member=Depends(actor),s:Session=Depends(db)):
     reply,action_ref,intent=interpret(m,p.text,s);x=Message(household_id=m.household_id,member_id=m.id,content=p.text,reply=reply,intent=intent,action_ref=action_ref)
-    s.add(x);s.flush();audit(s,m,'chat.message',x.id);s.commit();return {'id':x.id,'reply':reply,'mode':'JARVIS_DETERMINISTIC','language':'mixed','intent':intent,'action_ref':action_ref}
+    s.add(x);s.flush();audit(s,m,'chat.message',x.id);s.commit();return {'id':x.id,'reply':reply,'mode':'JARVIS_GROUNDED' if intent.startswith('MEMORY_GROUNDED_') else 'JARVIS_DETERMINISTIC','language':'mixed','intent':intent,'action_ref':action_ref}
 
 @app.get('/api/chat/history')
 def history(m:Member=Depends(actor),s:Session=Depends(db)):
@@ -657,3 +706,5 @@ def health():return {'status':'ok','mode':'homeos-jarvis-m2c-contextual','versio
 from importlib import import_module as _import_review_module
 _import_review_module('app.visual_review')
 _import_review_module('app.photo_inspection')
+_import_review_module('app.memory_history')
+_import_review_module('app.home_manager')

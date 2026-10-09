@@ -121,3 +121,143 @@ def test_visual_review_requires_owner_and_configured_graph():
     assert call('GET','/api/memory/visual/pending',owner).status_code==503
     assert call('POST',f'/api/memory/visual/{observation}/resolve',owner,
       json={'decision':'REJECT'}).status_code==503
+
+
+def test_grounded_intent_parser_is_read_only_and_handles_paraphrases(monkeypatch):
+    from app.grounded_jarvis import norm, _extract_unknown, MUTATING, _asset_candidates, optional_intent
+    assert norm('  Fridge...  Kahan? ')=='fridge kahan'
+    from app.grounded_jarvis import _hinglish
+    assert _hinglish('Electric kettle kahan hai?') is True
+    assert _hinglish('फ्रिज कहाँ है?') is True
+    assert _hinglish('Is it still there?') is False
+    assert _extract_unknown('Where did we put the microwave?')=='microwave'
+    assert _extract_unknown('Fridge kahan hai?')=='refrigerator'
+    assert _extract_unknown('Where is it now?') is None
+    assert MUTATING.search('Please move the microwave to the kitchen')
+    assert MUTATING.search('assign someone to clean the bathroom')
+    assert _asset_candidates([
+        {'id':'1','canonical_name':'Ceiling Fan','aliases':[]},
+        {'id':'2','canonical_name':'Window Fan','aliases':[]},
+    ],'fan')
+    monkeypatch.delenv('HOMEOS_CHAT_EXTERNAL_ENABLED',raising=False)
+    assert optional_intent('Where is it?',[],[],{}) is None
+
+
+def test_home_manager_requires_owner_and_confirmation_then_tracks_evidence():
+    import base64
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    cook=next(x['id'] for x in members if x['role']=='cook')
+    tree=call('GET','/api/virtual-house',owner).json()['property']
+    rooms={r['name']:r['id'] for f in tree['floors'] for r in f['rooms']}
+    kitchen=rooms['Kitchen']
+    bathroom=rooms['Guest Bathroom']
+    draft={'room_id':bathroom,'assignee_id':maid,
+           'instruction':'Wipe surfaces; submit photographic evidence.'}
+    assert call('POST','/api/home-manager/plans',maid,json=draft).status_code==403
+    assert call('POST','/api/home-manager/plans',owner,
+                json={**draft,'room_id':kitchen}).status_code==403
+    assert call('POST','/api/home-manager/plans',owner,
+                json={**draft,'assignee_id':cook}).status_code==422
+    before=call('GET','/api/today',maid).json()['tasks']
+    created=call('POST','/api/home-manager/plans',owner,json=draft)
+    assert created.status_code==201,created.text
+    plan=created.json()
+    assert plan['status']=='PROPOSED'
+    assert plan['task_id'] is None
+    assert len(call('GET','/api/today',maid).json()['tasks'])==len(before)
+    assert call('GET',f"/api/home-manager/plans/{plan['id']}",maid).status_code==403
+
+    approved=call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",owner,json={})
+    assert approved.status_code==200,approved.text
+    assigned=approved.json()
+    task_id=assigned['task_id']
+    assert task_id and assigned['task_status']=='ASSIGNED'
+    assert assigned['owner_confirmed']
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",owner,
+                json={}).json()['task_id']==task_id
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/cancel",owner,
+                json={}).status_code==409
+    assert call('POST',f"/api/home-manager/plans/{plan['id']}/confirm",maid,
+                json={}).status_code==403
+    after=call('GET','/api/today',maid).json()['tasks']
+    assert len(after)==len(before)+1
+    assert after[-1]['source']=='HOME_MANAGER'
+
+    for state in ('IN_PROGRESS','SUBMITTED'):
+        result=call('POST',f'/api/tasks/{task_id}/status',maid,json={'status':state})
+        assert result.status_code==200,result.text
+    pending=call('GET',f"/api/home-manager/plans/{plan['id']}",owner)
+    assert pending.status_code==200
+    assert 'inspect evidence' in pending.json()['follow_up']
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'VERIFIED'}).status_code==409
+    sample=base64.b64decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pLUAAAAASUVORK5CYII=')
+    evidence=call('POST',f'/api/tasks/{task_id}/evidence',maid,
+       files={'file':('completed.png',sample,'image/png')})
+    assert evidence.status_code==200,evidence.text
+    assert call('POST',f'/api/tasks/{task_id}/status',maid,
+                json={'status':'VERIFIED'}).status_code==403
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'VERIFIED'}).status_code==200
+    assert call('POST',f'/api/tasks/{task_id}/status',owner,
+                json={'status':'CLOSED'}).status_code==200
+    finished=call('GET',f"/api/home-manager/plans/{plan['id']}",owner).json()
+    assert finished['task_status']=='CLOSED'
+    assert finished['evidence_count']==1
+    assert finished['follow_up']=='Completed and closed.'
+
+
+def test_optional_model_cannot_substitute_a_previous_asset_for_unknown_subject(monkeypatch):
+    import app.grounded_jarvis as router
+    class FakeResponse:
+        def raise_for_status(self):pass
+        def json(self):
+            return {'choices':[{'message':{'content':
+              '{"intent":"location","subject":"Refrigerator","room":"Kitchen"}'}}]}
+    class FakeClient:
+        def __init__(self,*args,**kwargs):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+        def post(self,*args,**kwargs):return FakeResponse()
+    monkeypatch.setattr(router.httpx,'Client',FakeClient)
+    monkeypatch.setenv('HOMEOS_CHAT_EXTERNAL_ENABLED','true')
+    monkeypatch.setenv('HOMEOS_CHAT_API_KEY','ci-fake-no-network')
+    previous={'ref_name':'Refrigerator','ref_type':'asset'}
+    guessed=router.optional_intent('Where is the toaster?',[],[],previous)
+    assert guessed and guessed.subject is None and guessed.room is None
+    referred=router.optional_intent('Where is it now?',[],[],previous)
+    assert referred and referred.subject=='Refrigerator' and referred.room is None
+
+
+def test_chat_can_draft_but_not_auto_assign_a_cleaning_plan():
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    before=len(call('GET','/api/today',maid).json()['tasks'])
+    message=call('POST','/api/chat',owner,
+       json={'text':'Please plan cleaning Guest Bathroom for maid'})
+    assert message.status_code==200,message.text
+    reply=message.json()
+    assert reply['intent']=='HOME_MANAGER_PLAN_DRAFTED',reply
+    assert 'No task has been assigned yet' in reply['reply']
+    assert len(call('GET','/api/today',maid).json()['tasks'])==before
+    drafted=call('GET',f"/api/home-manager/plans/{reply['action_ref']}",owner)
+    assert drafted.status_code==200 and drafted.json()['status']=='PROPOSED'
+    assert drafted.json()['task_id'] is None
+    assert call('POST',f"/api/home-manager/plans/{reply['action_ref']}/confirm",
+                maid,json={}).status_code==403
+    confirmed=call('POST',f"/api/home-manager/plans/{reply['action_ref']}/confirm",
+                   owner,json={})
+    assert confirmed.status_code==200 and confirmed.json()['task_id']
+    assert len(call('GET','/api/today',maid).json()['tasks'])==before+1
+    question=call('POST','/api/chat',owner,
+       json={'text':'What is the plan for cleaning Guest Bathroom for maid?'})
+    assert question.status_code==200
+    assert question.json()['intent']=='HOME_MANAGER_PLAN_QUERY'
+    ambiguous=call('POST','/api/chat',owner,
+       json={'text':'Plan cleaning the imaginary sun room for maid'})
+    assert ambiguous.status_code==200
+    assert ambiguous.json()['intent']=='HOME_MANAGER_CLARIFY_ROOM'

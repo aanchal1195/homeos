@@ -55,3 +55,23 @@ Before testing in a **restored database** (not your live database):
 The upload/analysis API currently uses synchronous requests. A provider timeout may require a later retry of the same saved session/media; do not re-upload blindly. Invalid media, interrupted uploads and orphaned sessions need future cleanup and quotas. This release is **not** production-safe for sensitive household media: `X-Member-Id` remains an insecure, spoofable demo identity. Keep services bound to localhost and do not expose to the internet or other users until real owner authentication, CSRF protections, quotas and consent retention are implemented.
 
 This code and CI have **not** changed your running Mac containers or database.
+
+## M4A — Grounded conversational JARVIS (read-only)
+
+Owner household questions now flow through `apps/homeos/app/grounded_jarvis.py` before the legacy deterministic handlers, with tenant-scoped, parameterized read tools for known asset location, provenance history, room contents, ambiguity and follow-ups. Context is anchored in **persisted messages from the same household member**, not arbitrary text or model state. JARVIS identifies imported M2C records as last-recorded values, not verified live sensor positions. Rejected photo detections remain unregistered unless separately approved.
+
+The optional `HOMEOS_CHAT_EXTERNAL_ENABLED=true` and `HOMEOS_CHAT_API_KEY` activate **read-intent classification only** using the configured OpenAI model; it receives the message, a bounded list of asset/room names and the last conversation reference. It **does not** author SQL, respond with free-form household facts, assign tasks, or access private images. This is disabled by default. Consent and data-handling review are required before sending family conversations or inventory names to external providers. Without a key the service offers a constrained deterministic paraphrase/follow-up fallback — **not** general LLM conversation.
+
+Owners can open **View history** for a mapped asset in the Home Memory panel to inspect temporal locations, provenance, and original approved visual evidence. The history endpoint is owner-only and never exposes public media URLs.
+
+### Evidence of what works
+
+`scripts/verify-jarvis-journey-ci.py` uses **real PostgreSQL, HomeOS REST API, private memory service, image upload, real memory/analysis/review schemas and JARVIS chat**. For CI isolation the provider is replaced with `scripts/ci_fake_vision_app.py`, which returns ***scripted detections independent of pixels*** and rejects startup unless `HOMEOS_TEST_MODE=true` with a literal fake key. It tests upload, affirmative consent, pending observations, rejection, asset registration, changed location, history, ambiguous fans, follow-ups, owner/staff boundaries, and unknown objects. **It does not prove recognition quality on a real household photo**, external provider latency or the full flow in a browser. The Next.js production build is a compilation check, not manual UI verification.
+
+## M4B — First bounded Home Manager action
+
+An owner can draft a **Clean Room** plan in the Home Manager card, selecting a registered room and an explicit maid. Alternatively, a strictly bounded chat request such as **“Plan cleaning Guest Bathroom for maid”** creates only a `PROPOSED` draft (not an assigned task); the owner confirms it in the same Home Manager card. Requests with uncertain room, assignee or scheduling return a clarification rather than guessing. The draft `PROPOSED` plan is persisted without creating a task. Only `Confirm & assign` creates **one** existing operational task with source `HOME_MANAGER`; repeat confirmation returns the same task. Scope and household membership are checked at draft time **and again on confirmation**. Staff work progresses through the existing operational task state machine, with photographic evidence required before owner verification. Follow-up text derives from the task's live state, evidence count and due date. No background agent assigns work, verifies photographs autonomously or sends notifications.
+
+M2C Alembic revision **0005** adds `home_manager_plans` without replacing older household tables. Test on a **restored backup** of your real data before deploying. Do not delete or replace existing `pgdata`, `redisdata`, `uploads` or `memory_media` volumes.
+
+**Security limitations:** The local `X-Member-Id` demo identity is still trivially spoofable; do not expose HomeOS externally. Real authentication, CSRF protection, role-scoped consent, durable async video inference, live visual-model accuracy, browser interaction and your Mac household backup deployment remain unverified. No work has been done against your running Mac.

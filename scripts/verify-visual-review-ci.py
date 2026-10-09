@@ -166,7 +166,7 @@ with tempfile.TemporaryDirectory() as temporary:
 
     jarvis=client.post("/api/chat",headers=headers,json={"text":"Where is the microwave?"})
     assert jarvis.status_code==200,jarvis.text
-    assert jarvis.json()["intent"]=="MEMORY_LOCATION"
+    assert jarvis.json()["intent"] in ("MEMORY_LOCATION","MEMORY_GROUNDED_ASSET_LOCATION")
     assert "Kitchen" in jarvis.json()["reply"]
 
     rejected=client.post(f"/api/memory/visual/{reject_id}/resolve",headers=headers,
@@ -186,7 +186,7 @@ with tempfile.TemporaryDirectory() as temporary:
         assert fridge.room_id==alternate_room_id
     location=client.post("/api/chat",headers=headers,json={"text":"Where is the refrigerator?"})
     assert location.status_code==200,location.text
-    assert location.json()["intent"]=="MEMORY_LOCATION"
+    assert location.json()["intent"] in ("MEMORY_LOCATION","MEMORY_GROUNDED_ASSET_LOCATION")
     assert "Store Room" in location.json()["reply"]
     with psycopg.connect(url) as conn:
         with conn.cursor() as c:

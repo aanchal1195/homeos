@@ -5,6 +5,9 @@ on:
       - "apps/homeos/**"
       - "compose.yaml"
       - "scripts/verify-photo-inspection-ci.py"
+      - "scripts/verify-jarvis-journey-ci.py"
+      - "scripts/verify-home-manager-ci.py"
+      - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
   pull_request:
@@ -31,11 +34,11 @@ jobs:
           DATABASE_URL: sqlite:////tmp/homeos-legacy-alembic-test.sqlite
         run: |
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0004'
+          PYTHONPATH=. alembic current | grep '0005'
           python - <<'PY'
           import sqlite3
           db=sqlite3.connect('/tmp/homeos-legacy-alembic-test.sqlite')
-          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links'):
+          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans'):
               assert db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(),table
           columns={r[1] for r in db.execute('PRAGMA table_info(assets)')}
           assert {'room_id','zone_id','asset_type'}.issubset(columns),columns
@@ -66,11 +69,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r apps/homeos/requirements.txt -r services/memory/requirements.txt
-      - name: Install the real M2C schema from Alembic 0001 to 0004
+      - name: Install the real M2C schema from Alembic 0001 to 0005
         run: |
           cd apps/homeos
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0004'
+          PYTHONPATH=. alembic current | grep '0005'
       - name: Install the graph and visual memory tables
         run: |
           for sql in services/memory/schema/00*.sql; do
@@ -95,6 +98,16 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-photo-inspection-ci.py
+      - name: Verify full owner visual-to-conversational memory loop (scripted CI vision only)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+          HOMEOS_CHAT_EXTERNAL_ENABLED: 'false'
+        run: python scripts/verify-jarvis-journey-ci.py
+      - name: Verify owner-confirmed Home Manager plan and task evidence lifecycle in PostgreSQL
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+        run: python scripts/verify-home-manager-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
