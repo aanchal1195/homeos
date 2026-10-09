@@ -677,8 +677,18 @@ def guided_decide(evidence_id:str,body:DecisionIn,m=Depends(actor),s:Session=Dep
             if room is None:
                 raise HTTPException(422,"Select a verified room before registering this object")
             existing=s.scalars(select(Asset).where(
-                Asset.household_id==m.household_id,Asset.room_id==room.id)).all()
-            made=next((a for a in existing if _case_equal(a.name,name)),None)
+                Asset.household_id==m.household_id)).all()
+            # A new photo of an existing named item in another room may be a
+            # relocation, NOT proof of a second physical object. Never guess.
+            elsewhere=[a for a in existing if _case_equal(a.name,name)
+                       and a.room_id!=room.id]
+            if elsewhere:
+                raise HTTPException(409,
+                  "An asset with this name is already registered in another room. "
+                  "Clarify whether it is another item or use owner-reviewed "
+                  "Visual Review to confirm a relocation.")
+            made=next((a for a in existing if a.room_id==room.id
+                       and _case_equal(a.name,name)),None)
             if made is None:
                 made=Asset(household_id=m.household_id,room_id=room.id,
                            name=name,asset_type=suggested["asset_type"],status="UNKNOWN")
