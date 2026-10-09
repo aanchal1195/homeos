@@ -537,7 +537,7 @@ def guided_decide(evidence_id:str,body:DecisionIn,m=Depends(actor),s:Session=Dep
             existing=_find_floor(s,m,name)
             if existing:made=existing
             else:
-                house=scoped(s,Household,m.household_id,m)
+                house=s.get(Household,m.household_id)
                 prop=s.scalar(select(Property).where(Property.household_id==m.household_id))
                 if not prop:
                     prop=Property(household_id=m.household_id,name=house.name,
