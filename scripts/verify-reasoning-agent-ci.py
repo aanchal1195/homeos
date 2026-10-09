@@ -271,6 +271,41 @@ with SessionLocal() as s:
         Task.household_id==house,Task.room_id==guest_id,
         Task.source=="HOME_MANAGER")).all()
 
+# Agent tool budget: repeated model calls cannot execute an unbounded search.
+tool_budget=ask("Can you locate the ceiling fan?",[
+    ("find_entities",{"query":"Ceiling Fan"}) for _ in range(9)
+])
+assert tool_budget["mode"]=="JARVIS_AGENT_UNAVAILABLE"
+assert tool_budget["error_code"]=="TOOL_LIMIT",tool_budget
+assert len(trace_for(tool_budget)["tools"])==8
+
+# If inference fails *after* a valid PROPOSED draft, the draft remains
+# visible and the error must never claim that nothing was saved or assigned.
+late_model=ScriptedModel([
+    ("find_entities",{"query":"Guest Bedroom"}),
+    ("get_room",lambda t:{"id":t[0]["matches"][0]["id"]}),
+    ("get_room_tasks",lambda t:{"id":t[0]["matches"][0]["id"]}),
+    ("eligible_staff_for_room",lambda t:{"id":t[0]["matches"][0]["id"]}),
+    ("propose_cleaning",lambda t:{
+      "room_id":t[0]["matches"][0]["id"],
+      "assignee_id":t[3]["eligible"][0]["id"],
+      "instruction":"One unassigned draft; provider fails afterward."})
+])
+def late_failure(payload,timeout):
+    if late_model.position==5:
+        raise httpx.ConnectError("simulated outage after proposal")
+    return late_model(payload,timeout)
+agent_runtime._completion=late_failure
+late=client.post("/api/chat",headers=owner_h,json={
+    "text":"Please prepare the Guest Bedroom for guests again."}).json()
+assert late["mode"]=="JARVIS_AGENT_UNAVAILABLE",late
+assert "I saved a draft plan" in late["reply"],late
+assert late["action_ref"],late
+with SessionLocal() as s:
+    pending=s.get(HomeManagerPlan,late["action_ref"])
+    assert pending and pending.room_id==guest_id
+    assert pending.status=="PROPOSED" and pending.task_id is None
+
 # Disabled mode is clearly different (and does not pretend AI reasoning).
 os.environ["HOMEOS_JARVIS_AGENT_ENABLED"]="false"
 fallback=client.post("/api/chat",headers=owner_h,json={
