@@ -40,3 +40,18 @@ The owner-only **Visual review** panel is visible in HomeOS after visual analysi
 Migration `005_visual_review.sql` is **additive**. Apply it only after backing up the current database and validating a restored copy. Enable `HOMEOS_MEMORY_ENABLED=true` only after all the memory migrations have been applied. The private evidence preview requires the `memory_media` volume; it is not a public download endpoint.
 
 **Security warning:** The existing `X-Member-Id` demo identity is not production authentication. Even though review handlers check `owner` role, a caller can impersonate that identity if the service is exposed. **Do not expose HomeOS externally or use real sensitive household recordings until production authentication and consent controls exist.**
+
+## M3F — Owner photo inspection from the HomeOS UI
+
+The owner can now use **Inspect a room** on the JARVIS operational dashboard. Pick a synchronized room/area and upload a JPEG/PNG/WebP photo (max 15 MiB). The upload is sent to the local FastAPI gateway and held in the private `memory_media` volume. **Uploading does not invoke an AI provider.** The owner must separately opt in with the consent checkbox and click **Analyze with AI** before a photo or its transformed version is sent to the configured OpenAI vision provider. The model's findings remain **PENDING** until reviewed in the existing Visual review panel.
+
+Before testing in a **restored database** (not your live database):
+1. Apply M2C migrations and Home Memory SQL migrations 001–005. Synchronize the house hierarchy in Home Memory before selecting a location.
+2. Set `HOMEOS_MEMORY_ENABLED=true`, `HOMEOS_HOUSEHOLD_ID` to the **existing** household UUID, and a long, non-empty `HOMEOS_API_TOKEN` in your local `.env`.
+3. Start the private memory service with the `memory` Compose profile in addition to the HomeOS API/web containers. The API connects to `http://memory:8001` over the Compose network, forwarding `HOMEOS_API_TOKEN` through its server-only `HOMEOS_MEMORY_SERVICE_TOKEN` environment setting; **do not expose this token to the Next.js app**.
+4. Upload a non-sensitive test image. Check that HomeOS says **privately uploaded, not sent to AI**.
+5. Only after explicitly approving external disclosure, configure `HOMEOS_VISION_API_KEY`, check the provider's data-handling terms, and test **Analyze with AI**. Inspect proposed objects in **Visual review** and approve a correction to update the graph.
+
+The upload/analysis API currently uses synchronous requests. A provider timeout may require a later retry of the same saved session/media; do not re-upload blindly. Invalid media, interrupted uploads and orphaned sessions need future cleanup and quotas. This release is **not** production-safe for sensitive household media: `X-Member-Id` remains an insecure, spoofable demo identity. Keep services bound to localhost and do not expose to the internet or other users until real owner authentication, CSRF protections, quotas and consent retention are implemented.
+
+This code and CI have **not** changed your running Mac containers or database.

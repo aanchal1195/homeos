@@ -4,6 +4,7 @@ on:
     paths:
       - "apps/homeos/**"
       - "compose.yaml"
+      - "scripts/verify-photo-inspection-ci.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
   pull_request:
@@ -89,6 +90,11 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-visual-review-ci.py
+      - name: Verify M3F owner photo upload and consent with real memory HTTP service
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+        run: python scripts/verify-photo-inspection-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
