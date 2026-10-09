@@ -140,8 +140,7 @@ export default function GuidedSetupPanel({memberId,floors,onUpdated}:{
   });
   const setDraft=(id:string,patch:Partial<Draft>,suggestion:Suggestion)=>{
     setDrafts(old=>({...old,[id]:{
-      name:suggestion.name,floor_id:'',room_id:'',
-      ...old[id],...patch
+      ...(old[id]||{name:suggestion.name,floor_id:'',room_id:''}),...patch
     }}));
   };
   const acceptTypes='image/jpeg,image/png,image/webp';
