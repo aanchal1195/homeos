@@ -2,13 +2,15 @@
 M3B does not perform AI inference; observations must be reviewed separately.
 """
 import hashlib
+import io
+import subprocess
 import os
 import pathlib
-import secrets
 import uuid
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
+from PIL import Image, UnidentifiedImageError
 from app import db, identity, need_entity
 
 router = APIRouter(prefix="/api/v1/visual", tags=["Visual memory"])
@@ -67,6 +69,28 @@ async def upload(file: UploadFile=File(...), house=Depends(identity)):
     blob=await file.read(cap+1)
     if not blob or len(blob)>cap: raise HTTPException(413,"Empty or oversized file")
     if not signature_matches(blob,mime): raise HTTPException(415,"Content signature does not match declared media type")
+    if mime.startswith("image/"):
+        try:
+            with Image.open(io.BytesIO(blob)) as img:
+                img.verify()
+            with Image.open(io.BytesIO(blob)) as img:
+                if img.width * img.height > 40_000_000:
+                    raise HTTPException(413,"Image dimensions exceed limit")
+                if {"image/jpeg":"JPEG","image/png":"PNG","image/webp":"WEBP"}[mime] != img.format:
+                    raise HTTPException(415,"Image encoding does not match media type")
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+            raise HTTPException(415,"Invalid image encoding")
+    else:
+        # ffprobe verifies readable media container; no metadata claims about image contents.
+        try:
+            probe = subprocess.run(
+                ["ffprobe","-v","error","-show_entries","format=format_name",
+                 "-of","default=noprint_wrappers=1:nokey=1","pipe:0"],
+                input=blob, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=True)
+            if not probe.stdout.strip():
+                raise HTTPException(415,"Unrecognized video container")
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            raise HTTPException(415,"Invalid or unsupported video encoding")
     digest=hashlib.sha256(blob).hexdigest()
     media_id=uuid.uuid4()
     # Relative, non-user-controlled storage path; file names are never trusted.
@@ -105,6 +129,20 @@ def coverage(session_id:uuid.UUID,body:CoverageIn,house=Depends(identity)):
         session=need_session(conn,house,session_id)
         if session["status"]!="OPEN": raise HTTPException(409,"Session closed")
         need_entity(conn,house,body.location_id)
+        # Coverage must be for the inspected location or one of its graph descendants.
+        if body.location_id != session["expected_location_id"]:
+            descendants = conn.execute("""WITH RECURSIVE children(id,path) AS (
+              SELECT %s::uuid, ARRAY[%s::uuid]
+              UNION ALL
+              SELECT a.subject_id,children.path || a.subject_id
+              FROM memory_assertions a JOIN children ON a.object_id=children.id
+              WHERE a.household_id=%s AND a.predicate IN ('PART_OF','LOCATED_IN')
+                AND a.verification_status='CONFIRMED' AND a.valid_until IS NULL
+                AND NOT a.subject_id = ANY(children.path)
+            ) SELECT 1 FROM children WHERE id=%s LIMIT 1""",
+              (session["expected_location_id"],session["expected_location_id"],house,body.location_id)).fetchone()
+            if not descendants:
+                raise HTTPException(422,"Coverage location is outside inspection location")
         if body.media_id:
             attached=conn.execute("""SELECT 1 FROM visual_session_media
               WHERE household_id=%s AND session_id=%s AND media_id=%s""",
