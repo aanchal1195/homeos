@@ -31,7 +31,7 @@ Detection labels are matched **only** against unambiguously named, confirmed ass
 
 - **External disclosure**: analysis sends image content or sampled video frames to the configured OpenAI vision provider. Obtain owner/staff consent before submitting private household images; do not upload sensitive footage without approval.
 - **Cost**: each media analysis may issue up to 3 paid model requests.
-- **Reliability**: this first increment runs synchronously and retries require explicit new model versions after a failed attempt; no background queue or recovery scheduler yet.
+- **Reliability**: this first increment runs synchronously; failed attempts can be retried with the same model without duplicating observations, but interrupted RUNNING attempts still require operator recovery. There is no background queue, lease expiry, or recovery scheduler yet.
 - **Review**: observation acceptance never changes the confirmed knowledge graph. An authorized domain workflow must apply approved facts.
 - **Accuracy**: no identity recognition, exact object tracking, calibrated confidence, depth estimation, hidden defect diagnosis, or accurate inventory quantification.
 - **Authentication**: existing single-owner bootstrap token remains unsuitable for staff/public deployment.
