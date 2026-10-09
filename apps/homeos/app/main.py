@@ -606,6 +606,29 @@ def interpret(m,text,s):
         return ('Virtual house setup abhi complete nahi hai. Pehle property, floors, rooms aur staff access configure karein.' if hi else
                 'Virtual house setup is not complete yet. Configure the property, floors, rooms, and staff access first.'),None,'SETUP_REQUIRED'
 
+    # M4B: one narrow natural-language draft action. Even explicit planning
+    # never assigns work; the owner must confirm in the Home Manager panel.
+    if m.role=='owner' and re.search(r'\b(plan|draft|schedule)\b',low) and any(
+        word in low for word in ('clean','cleaning','saaf','safai','साफ','सफाई')):
+        if any(word in low for word in ('tomorrow','kal','अगले','कल')):
+            return ('Specify the due date in Home Manager before confirming; I did not schedule anything.',
+                    None,'HOME_MANAGER_CLARIFY_DATE')
+        staff=find_member(s,m,text)
+        room=find_room(s,m,text)
+        if not room:
+            return ('Which exact configured room should the cleaning plan cover?',
+                    None,'HOME_MANAGER_CLARIFY_ROOM')
+        if not staff:
+            return ('Which maid should receive this plan? No task has been assigned.',
+                    None,'HOME_MANAGER_CLARIFY_ASSIGNEE')
+        from app.home_manager import RoomCleaningPlanIn, propose_room_cleaning
+        proposed=propose_room_cleaning(RoomCleaningPlanIn(
+            room_id=room.id,assignee_id=staff.id,
+            instruction='Owner-requested via JARVIS: '+text[:350]),m,s)
+        return (f"Drafted {proposed['title']} for {staff.name} (due today). "
+                "Open Home Manager and confirm to assign. No task has been assigned yet.",
+                proposed['id'],'HOME_MANAGER_PLAN_DRAFTED')
+
     # M4A read-only, tenant-scoped grounded conversation runs before legacy
     # phrase handlers. It cannot write or delegate arbitrary SQL to a model.
     from app.grounded_jarvis import answer as grounded_answer
