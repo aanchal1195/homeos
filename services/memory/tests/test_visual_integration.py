@@ -1,5 +1,6 @@
 """M3B integration coverage: private uploads, status and evidence gating."""
 import io
+from PIL import Image
 import os
 import uuid
 import pytest
@@ -36,8 +37,11 @@ def test_guided_session_upload_coverage(client,auth):
       "session_type":"WEEKLY_WALKTHROUGH","expected_location_id":rid})
     assert response.status_code==201,response.text
     sid=response.json()["id"]
-    # Minimal file signature sufficient for metadata-validation test, not a real photograph.
-    png=b"\x89PNG\r\n\x1a\n"+b"fake-png-test-payload"
+    # Use a valid encoded image, not a header-only fake.
+    image=Image.new("RGB",(2,2),color=(150,150,150))
+    out=io.BytesIO()
+    image.save(out,format="PNG")
+    png=out.getvalue()
     uploaded=client.post("/api/v1/visual/media",headers=auth,files={"file":("kitchen.png",png,"image/png")})
     assert uploaded.status_code==201,uploaded.text
     mid=uploaded.json()["id"]
