@@ -192,11 +192,43 @@ def _encode(path,mime):
     return result[:3]
 
 
+def _provider_error(response):
+    """Safely classify upstream errors without exposing keys or provider text."""
+    status=response.status_code
+    code=""
+    try:
+        error=response.json().get("error",{})
+        if isinstance(error,dict):
+            raw=error.get("code") or error.get("type") or ""
+            code=raw if isinstance(raw,str) and len(raw)<75 else ""
+    except (ValueError,TypeError,AttributeError):
+        pass
+    if status==401:
+        return (502,"GUIDED_AI_AUTH_FAILED: OpenAI rejected the sandbox API key (HTTP 401). Check the key stored locally.")
+    if status==403:
+        return (502,"GUIDED_AI_ACCESS_DENIED: OpenAI denied project/model access (HTTP 403). Check project permissions.")
+    if status==404:
+        return (502,"GUIDED_AI_MODEL_NOT_FOUND: The configured model or endpoint was not found (HTTP 404). Check HOMEOS_GUIDED_SETUP_MODEL.")
+    if status==429 and code in ("insufficient_quota","billing_hard_limit_reached"):
+        return (503,"GUIDED_AI_QUOTA: OpenAI API project has insufficient credits or a billing limit (HTTP 429).")
+    if status==429:
+        return (503,"GUIDED_AI_RATE_LIMIT: OpenAI temporarily rate-limited this project (HTTP 429). Retry later; check project usage.")
+    if status in (400,422):
+        return (502,"GUIDED_AI_REQUEST_REJECTED: The selected model rejected the request or JSON response format (HTTP "+str(status)+").")
+    if 500<=status<=599:
+        return (503,"GUIDED_AI_UPSTREAM_ERROR: OpenAI is temporarily unavailable (HTTP "+str(status)+"). Retry later.")
+    return (502,"GUIDED_AI_HTTP_ERROR: OpenAI returned HTTP "+str(status)+". Check your API project settings.")
+
+
 def _provider(messages,*,max_tokens=1050,timeout=45):
-    """Dedicated replaceable model adapter; network only after caller consent."""
+    """Dedicated replaceable model adapter; network only after caller consent.
+
+    Raised HTTP errors have bounded diagnostic categories. Never send raw
+    provider payloads, images, prompts or authorization headers to the UI.
+    """
     key=os.getenv("HOMEOS_GUIDED_SETUP_API_KEY")
     if not key or os.getenv("HOMEOS_GUIDED_SETUP_AI_ENABLED","false").lower()!="true":
-        raise HTTPException(503,"Guided AI is disabled or no provider key is configured")
+        raise HTTPException(503,"GUIDED_AI_UNCONFIGURED: Guided AI is disabled or no provider key is configured.")
     try:
         with httpx.Client(timeout=httpx.Timeout(timeout,connect=4),trust_env=False) as client:
             response=client.post("https://api.openai.com/v1/chat/completions",
@@ -206,9 +238,45 @@ def _provider(messages,*,max_tokens=1050,timeout=45):
                    "response_format":{"type":"json_object"},
                    "messages":messages})
             response.raise_for_status()
-            return json.loads(response.json()["choices"][0]["message"]["content"])
-    except (httpx.HTTPError,ValueError,KeyError,IndexError,TypeError) as exc:
-        raise HTTPException(502,"Guided AI provider unavailable or returned invalid JSON") from exc
+            data=response.json()
+            choices=data["choices"]
+            choice=choices[0]
+            if choice.get("finish_reason")=="length":
+                raise HTTPException(502,"GUIDED_AI_RESPONSE_TRUNCATED: The AI response exceeded the output limit; try fewer objects or another image.")
+            content=choice["message"]["content"]
+            if not isinstance(content,str) or not content.strip():
+                raise HTTPException(502,"GUIDED_AI_EMPTY_RESPONSE: The model did not return analyzable JSON.")
+            parsed=json.loads(content)
+            if not isinstance(parsed,dict):
+                raise HTTPException(502,"GUIDED_AI_INVALID_RESPONSE: The AI response was not a JSON object.")
+            return parsed
+    except httpx.HTTPStatusError as exc:
+        code,message=_provider_error(exc.response)
+        raise HTTPException(code,message) from None
+    except httpx.TimeoutException:
+        raise HTTPException(503,"GUIDED_AI_TIMEOUT: Timed out contacting OpenAI. Check connectivity and retry.") from None
+    except httpx.TransportError:
+        raise HTTPException(503,"GUIDED_AI_NETWORK_ERROR: Cannot connect securely to OpenAI from the HomeOS API container.") from None
+    except (ValueError,KeyError,IndexError,TypeError,AttributeError):
+        raise HTTPException(502,"GUIDED_AI_INVALID_JSON: The model returned malformed or unexpected JSON.") from None
+
+
+@app.post("/api/guided/provider-check")
+def guided_provider_check(m=Depends(actor)):
+    """Owner-triggered minimal provider diagnostic; sends NO household/media data.
+
+    No background provider traffic and no database reads. This test incurs
+    nominal API usage and is initiated only by the owner's explicit click.
+    """
+    require_owner(m)
+    result=_provider([
+      {"role":"system","content":"Reply with a JSON object containing only ok:true."},
+      {"role":"user","content":"Return {\"ok\": true}."}
+    ],max_tokens=35,timeout=12)
+    if result.get("ok") is not True:
+        raise HTTPException(502,"GUIDED_AI_TEST_RESPONSE: Provider connected but returned an unexpected test response.")
+    return {"status":"CONNECTED","model":os.getenv("HOMEOS_GUIDED_SETUP_MODEL","gpt-4.1-mini"),
+            "message":"AI connectivity verified with a synthetic request. No household records or media sent."}
 
 
 def _infer(item,path):

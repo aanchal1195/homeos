@@ -234,3 +234,45 @@ The owner must separately tick the checkbox for each image and click
 **Analyze this evidence with AI**; next-step reasoning has another consent
 checkbox. Begin with a synthetic/non-sensitive image. No API key or Docker
 configuration change is automatically applied by merging GitHub code.
+
+## Guided AI reports provider unavailable / invalid JSON
+
+If an image is marked **UPLOADED**, the binary upload succeeded. You do not
+need to upload it again. If AI analysis fails, the evidence is retained with a
+**FAILED** status and can be retried after provider access is corrected.
+
+Recent versions distinguish:
+- `GUIDED_AI_AUTH_FAILED` — OpenAI rejected the key (HTTP 401).
+- `GUIDED_AI_ACCESS_DENIED` / `GUIDED_AI_MODEL_NOT_FOUND` — check model/project access.
+- `GUIDED_AI_QUOTA` — add API credits or raise project billing limit;
+  ChatGPT subscription is not API credit.
+- `GUIDED_AI_RATE_LIMIT` — retry later / inspect usage tier.
+- `GUIDED_AI_REQUEST_REJECTED` — invalid request or incompatible model.
+- `GUIDED_AI_NETWORK_ERROR` / `GUIDED_AI_TIMEOUT` — API container cannot
+  reach OpenAI; check network, proxy and DNS.
+- `GUIDED_AI_INVALID_JSON` / `GUIDED_AI_RESPONSE_TRUNCATED` — response
+  formatting or completion length, not an image upload problem.
+
+The guided media panel has an explicit **Check AI connection** button. Clicking
+it makes only one small, **synthetic provider request** (no household data or
+media) and may incur nominal API charges. A `CONNECTED` result means the key,
+model and endpoint responded to JSON generation; it does **not** validate
+actual visual reasoning accuracy.
+
+After updating your sandbox source from GitHub, rebuild just `api web`:
+
+```bash
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml up -d --build api web
+```
+
+If the button says the provider is not configured, you can check sandbox
+environment presence **without showing the key**:
+
+```bash
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml exec -T api python -c 'import os; print("guided_enabled:", os.getenv("HOMEOS_GUIDED_SETUP_AI_ENABLED")); print("key_present:", bool(os.getenv("HOMEOS_GUIDED_SETUP_API_KEY"))); print("model:", os.getenv("HOMEOS_GUIDED_SETUP_MODEL"))'
+```
+
+Do **not** run `docker compose config` without `--quiet` if your environment
+includes secrets, as configuration output may contain API credentials. Never
+paste `.env.smoke` or API tokens into screenshots/chat. Keep the
+`homeos-sandbox` project separate from the real `homeos` project.
