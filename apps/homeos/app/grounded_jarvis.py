@@ -254,6 +254,13 @@ def _extract_unknown(utterance):
     return None
 
 
+def _hinglish(utterance):
+    u=norm(utterance)
+    return bool(re.search(r"[\\u0900-\\u097f]",utterance)) or any(
+        word_match(word,u) for word in
+        ("kahan","kahaan","kidhar","hai","hain","kya","kaun","wahan","abhi","kab","rakha"))
+
+
 def _is_history(u):
     return any(word_match(x,u) for x in HISTORY_WORDS)
 
@@ -290,6 +297,7 @@ def answer(s,m,utterance):
     assets,rooms=_catalogue(s,house)
     previous=_last_ref_with_name(s,house,_last_reference(s,m),assets,rooms)
     low=norm(utterance)
+    hi=_hinglish(utterance)
     if not low:
         return None
     explicit_assets=_mentioned(assets,utterance)
@@ -355,6 +363,11 @@ def answer(s,m,utterance):
                 reply=(f"Registered in {room['canonical_name']}: "+
                        ", ".join(x["canonical_name"] for x in records)+
                        ". These are last-recorded locations, not a current visual inspection.")
+            if hi:
+                reply=f"{room['canonical_name']} mein last recorded items: "+(
+                    ", ".join(x["canonical_name"] for x in records) if records else
+                    "koi registered asset nahi (room empty hona confirm nahi hai)"
+                )+". Ye live inspection nahi hai."
             return reply,"room:"+str(room["id"]),"MEMORY_GROUNDED_ROOM_CONTENTS"
 
     requested=_extract_unknown(utterance)
@@ -369,6 +382,10 @@ def answer(s,m,utterance):
 
     if not candidates:
         if requested:
+            if hi:
+                return (f"{requested} Home Memory mein registered nahi hai. "
+                        "Uski location ya presence confirm nahi kar sakta.",
+                        None,"MEMORY_GROUNDED_UNKNOWN")
             return (f"{requested} isn't registered in Home Memory. "
                     "I cannot confirm whether it is present or where it is.",
                     None,"MEMORY_GROUNDED_UNKNOWN")
@@ -410,7 +427,8 @@ def answer(s,m,utterance):
             detail+=f" Owner verified a visual observation on {stamp}."
         else:
             detail+=" No owner-verified visual event is on record."
-        return f"{item['canonical_name']}: {detail}",ref,"MEMORY_GROUNDED_ASSET_HISTORY"
+        prefix=f"{item['canonical_name']} ka verification record: " if hi else f"{item['canonical_name']}: "
+        return prefix+detail,ref,"MEMORY_GROUNDED_ASSET_HISTORY"
 
     if not path:
         return (f"{item['canonical_name']} is registered, but it has no confirmed location.",
@@ -423,6 +441,8 @@ def answer(s,m,utterance):
         response=f"I cannot confirm its live position. Last recorded for {item['canonical_name']}: {labels}. {provenance}"
     else:
         response=f"Last recorded location of {item['canonical_name']}: {labels}. {provenance}"
+    if hi:
+        response=f"{item['canonical_name']} ka last recorded location: {labels}. {provenance}"
     if explicit_rooms and any(x in low for x in ("is it in","is the","kya","क्या")):
         desired={r["id"] for r in explicit_rooms}
         actual=any(step["id"] in desired for step in path)
