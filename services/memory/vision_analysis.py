@@ -187,3 +187,17 @@ def analysis_status(session_id:uuid.UUID,house=Depends(identity)):
            FROM visual_analysis_runs WHERE household_id=%s AND session_id=%s
            ORDER BY created_at DESC""",(house,session_id)).fetchall()
         return {"runs":runs}
+
+@router.get("/sessions/{session_id}/observations")
+def analysis_observations(session_id:uuid.UUID,house=Depends(identity)):
+    """List detected objects for review; no implicit approval or graph mutation."""
+    with db() as conn:
+        need_session(conn,house,session_id)
+        observations=conn.execute("""SELECT o.id,o.status,o.subject_id,o.predicate,o.payload,
+             o.confidence,o.media_id,o.frame_timestamp_ms,o.model_version,
+             o.analysis_run_id,o.observed_at
+          FROM memory_observations o
+          JOIN visual_analysis_runs r ON r.id=o.analysis_run_id AND r.household_id=o.household_id
+          WHERE o.household_id=%s AND r.session_id=%s
+          ORDER BY o.observed_at DESC,o.id LIMIT 200""",(house,session_id)).fetchall()
+        return {"observations":observations}
