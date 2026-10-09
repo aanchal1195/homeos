@@ -253,6 +253,10 @@ def test_chat_can_draft_but_not_auto_assign_a_cleaning_plan():
                    owner,json={})
     assert confirmed.status_code==200 and confirmed.json()['task_id']
     assert len(call('GET','/api/today',maid).json()['tasks'])==before+1
+    question=call('POST','/api/chat',owner,
+       json={'text':'What is the plan for cleaning Guest Bathroom for maid?'})
+    assert question.status_code==200
+    assert question.json()['intent']=='HOME_MANAGER_PLAN_QUERY'
     ambiguous=call('POST','/api/chat',owner,
        json={'text':'Plan cleaning the imaginary sun room for maid'})
     assert ambiguous.status_code==200
