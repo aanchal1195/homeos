@@ -25,3 +25,5 @@ class ModelResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     findings: list[ModelFinding] = Field(default_factory=list, max_length=100)
     inspection_notes: str = Field(default="", max_length=500)
+
+MAX_RESPONSE_BYTES = 200_000
