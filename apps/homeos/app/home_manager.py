@@ -4,7 +4,7 @@ A plan is not a task. Confirmation is explicit and only invokes the existing
 household operational task ledger, scope rules and evidence/verification flow.
 No model may select the assignee, commit tasks or bypass status permissions.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -101,7 +101,7 @@ def propose_room_cleaning(p:RoomCleaningPlanIn,m=Depends(actor),s:Session=Depend
     due=p.due_date or date.today()
     if due < date.today():
         raise HTTPException(422,"Due date cannot be in the past")
-    if due > date.today().replace(year=date.today().year+2):
+    if due > date.today()+timedelta(days=730):
         raise HTTPException(422,"Due date exceeds two-year planning horizon")
     plan=HomeManagerPlan(
        id=uid(),household_id=m.household_id,owner_id=m.id,room_id=room.id,
