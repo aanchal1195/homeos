@@ -110,6 +110,23 @@ class Task(Base):
     source:Mapped[str]=mapped_column(String,default='MANUAL')
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
 
+class HomeManagerPlan(Base):
+    """Human-confirmed, single-action household plan; operational Task is authoritative."""
+    __tablename__='home_manager_plans'
+    id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
+    household_id:Mapped[str]=mapped_column(ForeignKey('households.id'),nullable=False)
+    owner_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    assignee_id:Mapped[str]=mapped_column(ForeignKey('members.id'),nullable=False)
+    room_id:Mapped[str]=mapped_column(ForeignKey('rooms.id'),nullable=False)
+    plan_kind:Mapped[str]=mapped_column(String,nullable=False,default='CLEAN_ROOM')
+    task_title:Mapped[str]=mapped_column(String,nullable=False)
+    instruction:Mapped[str]=mapped_column(Text,nullable=False,default='')
+    due_date:Mapped[str]=mapped_column(String,nullable=False)
+    status:Mapped[str]=mapped_column(String,nullable=False,default='PROPOSED')
+    task_id:Mapped[Optional[str]]=mapped_column(ForeignKey('tasks.id'),nullable=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now)
+    confirmed_at:Mapped[Optional[datetime]]=mapped_column(DateTime(timezone=True),nullable=True)
+
 class Message(Base):
     __tablename__='messages'
     id:Mapped[str]=mapped_column(String,primary_key=True,default=uid)
@@ -664,3 +681,4 @@ from importlib import import_module as _import_review_module
 _import_review_module('app.visual_review')
 _import_review_module('app.photo_inspection')
 _import_review_module('app.memory_history')
+_import_review_module('app.home_manager')
