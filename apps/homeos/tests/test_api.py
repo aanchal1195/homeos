@@ -485,3 +485,82 @@ def test_guided_video_validates_real_frames_and_size(monkeypatch,tmp_path):
     assert len(image_frames)>=1 and len(image_frames)<=3
     assert call('POST','/api/guided/analyze',owner,json={
       'evidence_id':eid,'consent_to_external_ai_processing':False}).status_code==422
+
+
+def test_guided_iphone_jpeg_and_png_mime_mismatch(monkeypatch,tmp_path):
+    """Safari/Photos MIME is metadata, not the decoded image type."""
+    import io
+    from PIL import Image
+    from app.main import SessionLocal,GuidedEvidence
+    monkeypatch.setenv('HOMEOS_GUIDED_MEDIA_ROOT',str(tmp_path))
+    members=call('GET','/api/demo-members').json()
+    owner=next(m['id'] for m in members if m['role']=='owner')
+    maid=next(m['id'] for m in members if m['role']=='maid')
+    for actual_format,wrong_mime,canonical_mime,extension in [
+        ('JPEG','image/png','image/jpeg','.jpg'),
+        ('PNG','image/jpeg','image/png','.png'),
+        ('JPEG','application/octet-stream','image/jpeg','.jpg'),
+    ]:
+        buf=io.BytesIO()
+        Image.new('RGB',(72,48),(75,120,170)).save(buf,format=actual_format)
+        raw=buf.getvalue()
+        result=call('POST','/api/guided/upload',owner,
+          data={'media_kind':'ROOM_PHOTO','room_hint':'iPhone test room'},
+          files={'file':('IMG_0061.jpeg',raw,wrong_mime)})
+        assert result.status_code==201,result.text
+        item=result.json()['evidence']
+        assert item['content_type']==canonical_mime,item
+        assert not item['consent_recorded']
+        with SessionLocal() as s:
+            record=s.get(GuidedEvidence,item['id'])
+            assert record.content_type==canonical_mime
+            assert record.storage_key.endswith(extension)
+        preview=call('GET',f"/api/guided/evidence/{item['id']}/media",owner)
+        assert preview.status_code==200
+        assert preview.content==raw
+        assert canonical_mime in preview.headers['content-type']
+        assert call('GET',f"/api/guided/evidence/{item['id']}/media",maid).status_code==403
+    # A MIME type or .jpg suffix cannot smuggle an SVG, HTML or script into preview.
+    forged=call('POST','/api/guided/upload',owner,
+      data={'media_kind':'ROOM_PHOTO'},
+      files={'file':('IMG_0061.jpg',b'<svg><script>alert(1)</script></svg>','image/jpeg')})
+    assert forged.status_code==415,forged.text
+
+
+def test_guided_native_iphone_heic_from_real_decoder(monkeypatch,tmp_path):
+    """Encode/decode actual HEIF bytes, not a renamed .jpg fixture."""
+    import base64,io
+    from PIL import Image
+    from app.main import SessionLocal,GuidedEvidence
+    from app import guided_setup
+    monkeypatch.setenv('HOMEOS_GUIDED_MEDIA_ROOT',str(tmp_path))
+    members=call('GET','/api/demo-members').json()
+    owner=next(m['id'] for m in members if m['role']=='owner')
+    picture=Image.new('RGB',(80,60),(25,90,150))
+    heic=io.BytesIO()
+    # register_heif_opener() also registers the HEIF encoder on Pillow.
+    picture.save(heic,format='HEIF',quality=76)
+    raw=heic.getvalue()
+    assert len(raw)>50 and raw[4:8]==b'ftyp',raw[:16]
+    # Safari may report an HEIC payload as JPEG or generic binary.
+    for misreported in ('image/jpeg','application/octet-stream','image/heic'):
+        created=call('POST','/api/guided/upload',owner,
+          data={'media_kind':'ROOM_PHOTO','room_hint':'Kitchen'},
+          files={'file':('IMG_0061.HEIC',raw,misreported)})
+        assert created.status_code==201,created.text
+        item=created.json()['evidence']
+        assert item['content_type'] in ('image/heic','image/heif'),item
+        with SessionLocal() as s:
+            evidence=s.get(GuidedEvidence,item['id'])
+            assert evidence.storage_key.endswith(('.heic','.heif'))
+            original=guided_setup._file_of(evidence).read_bytes()
+            assert original==raw,'Original HEIC must not be overwritten'
+            encoded=guided_setup._encode(guided_setup._file_of(evidence),evidence.content_type)
+            decoded=base64.b64decode(encoded[0])
+            assert decoded.startswith(bytes.fromhex('ffd8'))
+        preview=call('GET',f"/api/guided/evidence/{item['id']}/media",owner)
+        assert preview.status_code==200,preview.text[:120]
+        assert preview.headers['content-type'].startswith('image/jpeg')
+        with Image.open(io.BytesIO(preview.content)) as image:
+            assert image.format=='JPEG'
+            assert image.size==(80,60)

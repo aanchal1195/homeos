@@ -142,6 +142,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env
+      - name: Syntax-check private sandbox API key activation helper
+        run: bash -n scripts/enable-guided-ai-sandbox.sh
       - run: docker compose --env-file .env config --quiet
       - run: |
           # Guard compatibility with the old named Docker volumes.

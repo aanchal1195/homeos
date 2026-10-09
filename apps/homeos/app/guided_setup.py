@@ -25,8 +25,12 @@ from typing import Literal
 
 import httpx
 from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
+
+# Decode native iPhone HEIC/HEIF with libheif; preserve originals privately.
+register_heif_opener()
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -37,7 +41,13 @@ from app.main import (
 )
 
 ALLOWED_IMAGE={"image/png":("PNG",".png"),"image/jpeg":("JPEG",".jpg"),
-               "image/webp":("WEBP",".webp")}
+               "image/webp":("WEBP",".webp"),
+               "image/heic":("HEIF",".heic"),"image/heif":("HEIF",".heif")}
+# Server chooses canonical MIME/extension from actual decoded bytes, never Safari's
+# claimed MIME or the filename. HEIC and HEIF share the libheif decoder.
+IMAGE_FORMATS={"PNG":("image/png",".png"),"JPEG":("image/jpeg",".jpg"),
+               "WEBP":("image/webp",".webp"),"HEIF":("image/heic",".heic"),
+               "HEIC":("image/heic",".heic")}
 ALLOWED_VIDEO={"video/mp4":".mp4","video/quicktime":".mov","video/webm":".webm"}
 MAX_PHOTO=15*1024*1024
 MAX_VIDEO=35*1024*1024
@@ -124,27 +134,33 @@ def _video_length(path):
 
 
 def _validate_file(path,mime,kind):
-    if kind=="FLOORPLAN" and mime not in ALLOWED_IMAGE:
-        raise HTTPException(415,"Floor plan must be a JPEG, PNG or WebP image")
-    if kind=="ROOM_PHOTO" and mime not in ALLOWED_IMAGE:
-        raise HTTPException(415,"Room photo must be JPEG, PNG or WebP")
-    if kind=="ROOM_VIDEO" and mime not in ALLOWED_VIDEO:
-        raise HTTPException(415,"Walkthrough must be MP4, MOV or WebM")
-    if mime in ALLOWED_IMAGE:
+    """Return canonical (content_type, suffix), determined by decoded bytes.
+
+    iOS Photos/Safari can label a HEIC image as JPEG or octet-stream, or
+    produce a JPEG under a HEIC filename. Trust neither metadata nor extension.
+    Accept only a small allowlist of decoded raster formats; SVG, GIF, PDF and
+    disguised scripts are not accepted. All originals stay private.
+    """
+    if kind in ("FLOORPLAN","ROOM_PHOTO"):
         try:
             with Image.open(path) as image:
-                image.verify()
-            with Image.open(path) as image:
+                actual=image.format.upper()
+                if actual not in IMAGE_FORMATS:
+                    raise HTTPException(415,"Unsupported image encoding; use JPEG, PNG, WebP, HEIC or HEIF")
                 if image.width*image.height>40_000_000:
                     raise HTTPException(413,"Image pixel limit exceeded")
-                if image.format!=ALLOWED_IMAGE[mime][0]:
-                    raise HTTPException(415,"Image encoding does not match file type")
+                image.verify()
+            # Force decode to catch damaged media before creating the database row.
+            with Image.open(path) as image:
+                image.load()
         except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError,
                 Image.DecompressionBombWarning):
             raise HTTPException(415,"Invalid or corrupted image")
-    else:
-        _video_length(path)
-
+        return IMAGE_FORMATS[actual]
+    if mime not in ALLOWED_VIDEO:
+        raise HTTPException(415,"Walkthrough must be MP4, MOV or WebM")
+    _video_length(path)
+    return mime,ALLOWED_VIDEO[mime]
 
 def _encode(path,mime):
     if mime in ALLOWED_IMAGE:
@@ -384,20 +400,20 @@ def guided_upload(
     floor_hint:str=Form(default=""),room_hint:str=Form(default=""),
     m=Depends(actor),s:Session=Depends(db)):
     require_owner(m)
-    mime=(file.content_type or "").lower()
-    if media_kind=="FLOORPLAN" and mime not in ALLOWED_IMAGE:
-        raise HTTPException(415,"Floor plans must be images")
-    if media_kind=="ROOM_PHOTO" and mime not in ALLOWED_IMAGE:
-        raise HTTPException(415,"Room photos must be images")
+    mime=(file.content_type or "application/octet-stream").lower()
+    # For photographs trust the image decoder instead of Safari/Photos MIME.
+    # A claimed JPEG may actually be a native HEIC, and vice versa.
     if media_kind=="ROOM_VIDEO" and mime not in ALLOWED_VIDEO:
         raise HTTPException(415,"Walkthroughs must be MP4, MOV or WebM")
     selected=scoped(s,Room,room_id,m) if room_id else None
     limit=MAX_VIDEO if media_kind=="ROOM_VIDEO" else MAX_PHOTO
     evidence_id=uid()
-    extension=(ALLOWED_IMAGE[mime][1] if mime in ALLOWED_IMAGE else ALLOWED_VIDEO[mime])
-    key=f"{uuid.UUID(m.household_id)}/{evidence_id}{extension}"
+    # Use an unserved temporary name until binary validation identifies the
+    # canonical extension. A wrong client MIME never determines storage type.
+    key=f"{uuid.UUID(m.household_id)}/{evidence_id}.upload"
     root=_root()
     path=(root/key).resolve()
+    final_path=None
     if not path.is_relative_to(root):
         raise HTTPException(422,"Invalid private media path")
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -413,11 +429,16 @@ def guided_upload(
                 digest.update(block)
                 sink.write(block)
         if not count:raise HTTPException(422,"File cannot be empty")
-        _validate_file(path,mime,media_kind)
+        canonical_mime,extension=_validate_file(path,mime,media_kind)
+        key=f"{uuid.UUID(m.household_id)}/{evidence_id}{extension}"
+        final_path=(root/key).resolve()
+        if not final_path.is_relative_to(root):
+            raise HTTPException(422,"Invalid private media path")
+        path.rename(final_path)
         item=GuidedEvidence(id=evidence_id,household_id=m.household_id,member_id=m.id,
             media_kind=media_kind,room_id=selected.id if selected else None,
             floor_hint=_label(floor_hint)[:100],room_hint=_label(room_hint)[:100],
-            content_type=mime,storage_key=key,sha256=digest.hexdigest(),
+            content_type=canonical_mime,storage_key=key,sha256=digest.hexdigest(),
             byte_size=count,status="UPLOADED",suggestions_json="[]",notes_json="{}",
             created_at=now())
         s.add(item)
@@ -428,6 +449,7 @@ def guided_upload(
     except Exception:
         s.rollback()
         path.unlink(missing_ok=True)
+        if final_path is not None:final_path.unlink(missing_ok=True)
         raise
 
 
@@ -435,9 +457,14 @@ def guided_upload(
 def guided_media(evidence_id:str,m=Depends(actor),s:Session=Depends(db)):
     require_owner(m)
     item=_fetch(s,m,evidence_id)
-    return FileResponse(_file_of(item),media_type=item.content_type,
-        headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
-                 "Content-Disposition":"inline"})
+    headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+             "Content-Disposition":"inline"}
+    if item.content_type in ("image/heic","image/heif"):
+        # Browser support for displaying HEIC is inconsistent. Transcode only
+        # the authenticated preview; original evidence remains unchanged.
+        jpeg=base64.b64decode(_encode(_file_of(item),item.content_type)[0])
+        return Response(jpeg,media_type="image/jpeg",headers=headers)
+    return FileResponse(_file_of(item),media_type=item.content_type,headers=headers)
 
 
 @app.post("/api/guided/analyze")
