@@ -13,6 +13,11 @@ type Task={id:string;title:string;status:string;assignee_name?:string;room_name?
 type ChatMessage={who:'user'|'jarvis';text:string;intent?:string};
 type MemoryEntity={id:string;type:string;name:string;location?:string|null;source?:string|null};
 type MemoryOverview={entities:MemoryEntity[];counts:Record<string,number>;authoritative_source:string};
+type VisualLocation={id:string;name:string;type:string};
+type VisualFinding={id:string;label:string;description:string;confidence:number|null;media_id:string;model_version:string|null;frame_timestamp_ms:number|null;inspected_location:string;matched_legacy_asset_id:string|null;locations:VisualLocation[];observed_at:string};
+type VisualReviewData={observations:VisualFinding[];assets:{id:string;name:string}[]};
+type VisualDecision='REJECT'|'VERIFY_ONLY'|'REGISTER_ASSET'|'CONFIRM_LOCATION';
+type VisualDraft={action:VisualDecision;name:string;asset:string;location:string;note:string};
 
 const api=async(path:string,memberId?:string,init:RequestInit={})=>{
   const headers=new Headers(init.headers||{});if(memberId)headers.set('X-Member-Id',memberId);
@@ -72,7 +77,7 @@ function Operational({members,memberId,current,state,onIdentity,onRefreshState,e
   useEffect(()=>{if(memberId)load(memberId).catch(e=>setError(String(e)))},[memberId]);
   const send=async(e?:FormEvent)=>{e?.preventDefault();const msg=text.trim();if(!msg||!memberId)return;setBusy(true);setError('');setText('');setHistory(h=>[...h,{who:'user',text:msg}]);try{const out=await api('/api/chat',memberId,{method:'POST',body:JSON.stringify({text:msg})});setHistory(h=>[...h,{who:'jarvis',text:out.reply,intent:out.intent}]);await load(memberId)}catch(e){setError(String(e))}finally{setBusy(false)}};
   const editHouse=async()=>{try{await api('/api/setup/reopen',memberId,{method:'POST',body:'{}'});await onRefreshState()}catch(e){setError(String(e))}};
-  return <main className="shell"><section className="topbar"><div><div className="eyebrow">HomeOS</div><h1>JARVIS</h1><p>{property?.name} · household operating assistant</p></div><div className="topActions"><button className="ghost" onClick={editHouse} disabled={current?.role!=='owner'}>Edit virtual house</button><div className="identity"><label>Acting as</label><select value={memberId} onChange={e=>onIdentity(e.target.value)}>{members.map(m=><option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select></div></div></section><section className="grid"><div className="panel conversation"><div className="panelHead"><div><span className="statusDot"/>JARVIS is operational</div><span className="pill">{current?.role}</span></div><div className="quickRow">{(current?.role==='owner'?['How many rooms do we have?','Aaj ghar mein kya pending hai?','Maid ko Kitchen saaf karwa do']:['Aaj kya kaam hai?','Kaam kaise karna hai?','Kitchen ho gaya']).map(q=><button key={q} onClick={()=>setText(q)}>{q}</button>)}</div><div className="messages">{history.length===0&&<div className="welcome"><strong>Virtual house ready.</strong><br/>I answer from your configured virtual house, tasks, staff, assets and open issues, and I preserve recent conversation context.</div>}{history.map((m,i)=><div key={i} className={`bubble ${m.who}`}><div>{m.text}</div>{m.intent&&<small>{m.intent.replaceAll('_',' ')}</small>}</div>)}</div><form className="composer" onSubmit={send}><input value={text} onChange={e=>setText(e.target.value)} placeholder={current?.role==='owner'?'Tell JARVIS what needs to happen…':'Hindi, English ya Hinglish mein baat karein…'}/><button disabled={busy}>{busy?'…':'Send'}</button></form>{error&&<div className="error">{error}</div>}</div><aside className="rightRail"><div className="panel today"><div className="panelHead"><strong>Today</strong><span className="count">{tasks.length}</span></div><div className="taskList">{tasks.length===0&&<div className="empty">No pending tasks.</div>}{tasks.map(t=><div className="task" key={t.id}><div className="taskTop"><span>{t.title}</span><span className="state">{t.status.replaceAll('_',' ')}</span></div><div className="meta">{t.assignee_name&&<span>{t.assignee_name}</span>}{t.room_name&&<span>{t.room_name}</span>}<span>{t.source}</span></div></div>)}</div></div>{current?.role==='owner'&&<div className="panel miniHouse"><div className="panelHead"><strong>Virtual house</strong><span className="count">{state?.counts.rooms||0}</span></div><div className="miniTree">{property?.floors.map(f=><div key={f.id}><b>{f.name}</b><span>{f.rooms.map(r=>r.name).join(' · ')||'No rooms'}</span></div>)}</div></div>}</aside></section><GlobalStyles/></main>
+  return <main className="shell"><section className="topbar"><div><div className="eyebrow">HomeOS</div><h1>JARVIS</h1><p>{property?.name} · household operating assistant</p></div><div className="topActions"><button className="ghost" onClick={editHouse} disabled={current?.role!=='owner'}>Edit virtual house</button><div className="identity"><label>Acting as</label><select value={memberId} onChange={e=>onIdentity(e.target.value)}>{members.map(m=><option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select></div></div></section><section className="grid"><div className="panel conversation"><div className="panelHead"><div><span className="statusDot"/>JARVIS is operational</div><span className="pill">{current?.role}</span></div><div className="quickRow">{(current?.role==='owner'?['How many rooms do we have?','Aaj ghar mein kya pending hai?','Maid ko Kitchen saaf karwa do']:['Aaj kya kaam hai?','Kaam kaise karna hai?','Kitchen ho gaya']).map(q=><button key={q} onClick={()=>setText(q)}>{q}</button>)}</div><div className="messages">{history.length===0&&<div className="welcome"><strong>Virtual house ready.</strong><br/>I answer from your configured virtual house, tasks, staff, assets and open issues, and I preserve recent conversation context.</div>}{history.map((m,i)=><div key={i} className={`bubble ${m.who}`}><div>{m.text}</div>{m.intent&&<small>{m.intent.replaceAll('_',' ')}</small>}</div>)}</div><form className="composer" onSubmit={send}><input value={text} onChange={e=>setText(e.target.value)} placeholder={current?.role==='owner'?'Tell JARVIS what needs to happen…':'Hindi, English ya Hinglish mein baat karein…'}/><button disabled={busy}>{busy?'…':'Send'}</button></form>{error&&<div className="error">{error}</div>}</div><aside className="rightRail"><div className="panel today"><div className="panelHead"><strong>Today</strong><span className="count">{tasks.length}</span></div><div className="taskList">{tasks.length===0&&<div className="empty">No pending tasks.</div>}{tasks.map(t=><div className="task" key={t.id}><div className="taskTop"><span>{t.title}</span><span className="state">{t.status.replaceAll('_',' ')}</span></div><div className="meta">{t.assignee_name&&<span>{t.assignee_name}</span>}{t.room_name&&<span>{t.room_name}</span>}<span>{t.source}</span></div></div>)}</div></div>{current?.role==='owner'&&<div className="panel miniHouse"><div className="panelHead"><strong>Virtual house</strong><span className="count">{state?.counts.rooms||0}</span></div><div className="miniTree">{property?.floors.map(f=><div key={f.id}><b>{f.name}</b><span>{f.rooms.map(r=>r.name).join(' · ')||'No rooms'}</span></div>)}</div></div>}{current?.role==='owner'&&<><MemoryPanel memberId={memberId}/><VisualReviewPanel memberId={memberId}/></>}</aside></section><GlobalStyles/></main>
 }
 
 
@@ -98,6 +103,129 @@ function MemoryPanel({memberId}:{memberId:string}){
     </div></div>;
 }
 
+
+function EvidencePreview({memberId,observationId}:{memberId:string;observationId:string}){
+  const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[kind,setKind]=useState('');
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    if(!open)return;
+    let active=true;let objectUrl='';
+    const controller=new AbortController();
+    (async()=>{
+      try{
+        setError('');
+        const response=await fetch('/api/memory/visual/'+observationId+'/evidence',
+          {headers:{'X-Member-Id':memberId},signal:controller.signal,cache:'no-store'});
+        if(!response.ok)throw new Error('Evidence unavailable (HTTP '+response.status+').');
+        const blob=await response.blob();
+        if(!active)return;
+        objectUrl=URL.createObjectURL(blob);
+        setKind(blob.type);
+        setUrl(objectUrl);
+      }catch(e){if(active)setError(String(e));}
+    })();
+    return ()=>{active=false;controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl);setUrl('')};
+  },[open,memberId,observationId]);
+  return <div className="visualEvidence">
+    <button className="ghost" type="button" onClick={()=>setOpen(v=>!v)}>{open?'Hide evidence':'View original evidence'}</button>
+    {open&&<div className="visualEvidenceBody">{error&&<p className="memoryNote">{error}</p>}
+      {url&&(kind.startsWith('image/')?<img alt="Original inspection evidence — verify before deciding" src={url} />:
+        <video controls preload="metadata" src={url} aria-label="Original inspection video"/>)}
+      {!url&&!error&&<p className="memoryNote">Loading private evidence…</p>}
+    </div>}
+  </div>;
+}
+
+function VisualReviewPanel({memberId}:{memberId:string}){
+  const [data,setData]=useState<VisualReviewData|null>(null);
+  const [drafts,setDrafts]=useState<Record<string,VisualDraft>>({});
+  const [error,setError]=useState(''),[busy,setBusy]=useState(''),[loading,setLoading]=useState(false);
+  const load=async()=>{
+    setLoading(true);try{
+      const result:VisualReviewData=await api('/api/memory/visual/pending',memberId);
+      setData(result);setError('');
+    }catch(e){setData(null);setError('Visual review unavailable: '+String(e));}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{if(memberId)void load()},[memberId]);
+  const empty:VisualDraft={action:'VERIFY_ONLY',name:'',asset:'',location:'',note:''};
+  const update=(id:string,change:Partial<VisualDraft>)=>setDrafts(x=>({...x,[id]:{...(x[id]||empty),...change}}));
+  const submit=async(item:VisualFinding,decision:VisualDecision)=>{
+    const d=drafts[item.id]||empty;
+    if(decision==='REGISTER_ASSET'&&d.name.trim().length<2){
+      setError('Enter the verified asset name before registering it.');return;
+    }
+    if((decision==='REGISTER_ASSET'||decision==='CONFIRM_LOCATION')&&!d.location){
+      setError('Select the room or zone seen in the inspection.');return;
+    }
+    if(decision==='CONFIRM_LOCATION'&&!d.asset){
+      setError('Select the existing asset to verify or move.');return;
+    }
+    setBusy(item.id);setError('');
+    try{
+      await api('/api/memory/visual/'+item.id+'/resolve',memberId,{
+        method:'POST',body:JSON.stringify({
+          decision,corrected_name:d.name.trim()||null,location_entity_id:d.location||null,
+          asset_id:d.asset||null,note:d.note,asset_type:'appliance'
+        })
+      });
+      await load();
+    }catch(e){setError('Review failed: '+String(e))}
+    finally{setBusy('')}
+  };
+  return <div className="panel visualReview">
+    <div className="panelHead"><strong>Visual review</strong><span className="count">{data?.observations.length??'—'} pending</span></div>
+    <div className="memoryContent">
+      <p className="muted">AI findings are suggestions. Inspect evidence before approving a household change.</p>
+      <button type="button" className="secondary" disabled={loading||!!busy} onClick={load}>{loading?'Refreshing…':'Refresh findings'}</button>
+      {error&&<p role="alert" className="error">{error}</p>}
+      {data?.observations.length===0&&<p className="memoryNote">No pending visual observations. Analyze a photo or video in an inspection session to create proposals.</p>}
+      {data?.observations.map(item=>{
+        const d=drafts[item.id]||empty;
+        return <article className="visualCard" key={item.id}>
+          <strong>{item.label}</strong>
+          <small>{item.inspected_location} · {item.confidence==null?'Confidence not supplied':Math.round(item.confidence*100)+'% model score'}</small>
+          {item.description&&<p>{item.description}</p>}
+          <small>Model: {item.model_version||'Unknown'} · Frame: {item.frame_timestamp_ms==null?'—':(item.frame_timestamp_ms/1000)+'s'}</small>
+          <EvidencePreview memberId={memberId} observationId={item.id}/>
+          {item.matched_legacy_asset_id&&<p className="memoryNote">Existing asset suggested by graph matching; verify the match yourself.</p>}
+          <label>Review action
+            <select value={d.action} onChange={e=>update(item.id,{action:e.target.value as VisualDecision})}>
+              <option value="VERIFY_ONLY">Accept evidence only (no asset change)</option>
+              <option value="REGISTER_ASSET">Register a new asset</option>
+              <option value="CONFIRM_LOCATION">Confirm or correct existing asset location</option>
+            </select>
+          </label>
+          {d.action==='REGISTER_ASSET'&&<label>Verified asset name
+            <input value={d.name} placeholder="Type the correct object name" maxLength={120} onChange={e=>update(item.id,{name:e.target.value})}/>
+          </label>}
+          {d.action==='CONFIRM_LOCATION'&&<label>Registered asset
+            <select value={d.asset} onChange={e=>update(item.id,{asset:e.target.value})}>
+              <option value="">Select the correct asset</option>
+              {data.assets.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </label>}
+          {(d.action==='REGISTER_ASSET'||d.action==='CONFIRM_LOCATION')&&<label>Verified inspection location
+            <select value={d.location} onChange={e=>update(item.id,{location:e.target.value})}>
+              <option value="">Select room or zone</option>
+              {item.locations.map(loc=><option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>)}
+            </select>
+          </label>}
+          <label>Owner note (optional)
+            <input value={d.note} maxLength={600} placeholder="What did you verify or correct?" onChange={e=>update(item.id,{note:e.target.value})}/>
+          </label>
+          <div className="visualActions">
+            <button type="button" className="ghost" disabled={!!busy} onClick={()=>submit(item,'REJECT')}>Reject</button>
+            <button type="button" className="primary" disabled={!!busy} onClick={()=>submit(item,d.action)}>
+              {busy===item.id?'Saving…':'Confirm review'}
+            </button>
+          </div>
+        </article>
+      })}
+    </div>
+  </div>;
+}
+
 function GlobalStyles(){return <style jsx global>{`
-*{box-sizing:border-box}body{margin:0;background:#eef4f1;color:#12352c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}.center{min-height:100vh;display:grid;place-items:center}.onboard{min-height:100vh;padding:40px;max-width:1180px;margin:auto}.onboard.wide{max-width:1450px}.heroCard,.wizardCard,.housePreview,.panel{background:white;border:1px solid #dce8e2;border-radius:20px;box-shadow:0 8px 30px rgba(18,53,44,.05)}.heroCard{max-width:720px;margin:8vh auto;padding:38px}.eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:12px;font-weight:800;color:#628278}.heroCard h1,.wizardHead h1,.topbar h1{font-size:38px;margin:7px 0}.heroCard p,.wizardHead p,.topbar p,.muted{color:#61786f}.stack{display:flex;flex-direction:column;gap:14px;margin-top:22px}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:13px;font-weight:700;display:flex;flex-direction:column;gap:7px}input,select{width:100%;padding:12px 13px;border:1px solid #cfe0d8;border-radius:11px;background:white;color:#12352c;outline:none}input:focus,select:focus{border-color:#145441;box-shadow:0 0 0 3px rgba(20,84,65,.08)}button{cursor:pointer}.primary,.secondary,.ghost{border:0;border-radius:11px;padding:12px 16px;font-weight:800}.primary{background:#145441;color:white}.primary:disabled{opacity:.4}.primary.big{padding:15px 20px;font-size:16px}.secondary{background:#e9f3ee;color:#145441;border:1px solid #cfe0d8}.ghost{background:white;color:#315c50;border:1px solid #d8e6df}.error{margin-top:14px;padding:11px 13px;background:#fff0f0;color:#9d3030;border-radius:10px;font-size:13px}.wizardHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.modeBadge{background:#dff1e8;color:#145441;padding:9px 12px;border-radius:999px;font-size:12px;font-weight:900}.stepper{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px}.stepper button{border:1px solid #dce8e2;background:#f8fbfa;color:#61786f;border-radius:12px;padding:10px 8px;font-size:12px;font-weight:700}.stepper button span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#e7efeb;margin-right:6px}.stepper button.active{background:#145441;color:white}.stepper button.active span{background:white;color:#145441}.wizardGrid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.75fr);gap:18px}.wizardCard{padding:26px;min-height:620px}.wizardCard h2{margin-top:0;font-size:26px}.subcard{border:1px solid #e0ebe6;border-radius:14px;padding:16px}.subcard h3{margin:0}.checks{display:flex;gap:18px;flex-wrap:wrap}.checks label{display:flex;flex-direction:row;align-items:center}.checks input{width:auto}.chips{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}.chips span{background:#eef5f1;border-radius:999px;padding:7px 10px;font-size:12px}.ok{background:#e8f5ed;padding:12px;border-radius:10px}.housePreview{overflow:hidden;align-self:start;position:sticky;top:20px}.previewTop{padding:18px;border-bottom:1px solid #e8efec;display:flex;justify-content:space-between}.houseTree{padding:12px}.floorNode{border:1px solid #e0ebe6;border-radius:13px;margin:9px 0;overflow:hidden}.floorTitle{display:grid;grid-template-columns:28px 1fr auto;align-items:center;padding:11px;background:#f4f8f6}.floorTitle small,.roomNode small{color:#6b8279}.roomNode{display:flex;justify-content:space-between;padding:9px 12px 9px 40px;border-top:1px solid #edf3f0;font-size:13px}.treeMini{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:18px 0}.treeMini>div{border:1px solid #e0ebe6;border-radius:12px;padding:12px}.treeMini b{display:block;margin-bottom:7px}.treeMini span,.treeMini em{display:block;font-size:12px;color:#61786f;padding:2px 0}.treeMini.large{grid-template-columns:repeat(3,1fr)}.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:20px 0}.summary div{padding:15px;background:#f2f7f4;border-radius:12px}.summary strong{display:block;font-size:25px}.summary span{font-size:11px;color:#61786f}.shell{max-width:1440px;margin:auto;padding:28px}.topbar{display:flex;justify-content:space-between;align-items:end;margin-bottom:20px}.topActions{display:flex;gap:10px;align-items:center}.identity{display:flex;gap:10px;align-items:center;background:#fff;padding:10px 12px;border:1px solid #dce8e2;border-radius:14px}.identity label{display:block;color:#61786f}.identity select{border:0;padding:0;background:transparent;font-weight:700}.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(320px,.75fr);gap:18px;min-height:calc(100vh - 150px)}.conversation{display:flex;flex-direction:column;overflow:hidden}.panelHead{height:58px;padding:0 20px;border-bottom:1px solid #edf3f0;display:flex;align-items:center;justify-content:space-between}.statusDot{display:inline-block;width:8px;height:8px;background:#2f9e72;border-radius:50%;margin-right:9px}.pill,.count{font-size:12px;font-weight:800;background:#e8f4ee;padding:6px 9px;border-radius:999px}.quickRow{display:flex;gap:8px;overflow:auto;padding:12px 18px;border-bottom:1px solid #edf3f0}.quickRow button{white-space:nowrap;border:1px solid #d8e6df;background:#f8fbfa;border-radius:999px;padding:8px 12px;color:#315c50}.messages{flex:1;padding:22px;overflow:auto;min-height:420px;max-height:62vh}.welcome{background:#f1f7f4;border:1px solid #deebe5;border-radius:16px;padding:18px;max-width:540px;line-height:1.55}.bubble{max-width:75%;padding:12px 14px;border-radius:16px;margin:9px 0;line-height:1.45}.bubble.user{margin-left:auto;background:#145441;color:white}.bubble.jarvis{background:#f0f5f2;border:1px solid #dbe8e1}.bubble small{display:block;margin-top:6px;opacity:.65;font-size:10px}.composer{display:flex;gap:10px;padding:16px;border-top:1px solid #edf3f0}.composer input{flex:1}.composer button{border:0;background:#145441;color:white;border-radius:12px;padding:0 22px;font-weight:800}.rightRail{display:flex;flex-direction:column;gap:18px}.taskList{padding:14px;display:flex;flex-direction:column;gap:10px}.task{border:1px solid #e0ebe6;border-radius:14px;padding:13px}.taskTop{display:flex;justify-content:space-between;gap:10px;font-weight:700}.state{font-size:10px;padding:5px 7px;border-radius:999px;background:#edf3f0}.meta{display:flex;gap:8px;margin-top:8px;font-size:11px;color:#698078}.empty{padding:18px;color:#6b8279;text-align:center}.miniTree{padding:12px}.miniTree>div{padding:10px;border-bottom:1px solid #edf3f0}.miniTree b,.miniTree span{display:block}.miniTree span{font-size:11px;color:#698078;margin-top:4px}.memoryContent{padding:14px}.memoryContent .secondary{width:100%}.memoryNote{font-size:12px;color:#547468;line-height:1.45}.memoryList{max-height:280px;overflow:auto;margin-top:10px}.memoryList>div{padding:8px 0;border-bottom:1px solid #edf3f0}.memoryList b,.memoryList small{display:block}.memoryList small{font-size:11px;color:#698078;margin-top:4px}@media(max-width:900px){.onboard,.shell{padding:16px}.wizardHead,.topbar{align-items:flex-start;flex-direction:column;gap:12px}.stepper{grid-template-columns:repeat(3,1fr)}.wizardGrid,.grid{grid-template-columns:1fr}.housePreview{position:static}.treeMini.large,.summary{grid-template-columns:repeat(2,1fr)}.topActions{width:100%;flex-wrap:wrap}.identity{flex:1}.twocol{grid-template-columns:1fr}.messages{min-height:360px}.bubble{max-width:88%}}
+*{box-sizing:border-box}body{margin:0;background:#eef4f1;color:#12352c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}.center{min-height:100vh;display:grid;place-items:center}.onboard{min-height:100vh;padding:40px;max-width:1180px;margin:auto}.onboard.wide{max-width:1450px}.heroCard,.wizardCard,.housePreview,.panel{background:white;border:1px solid #dce8e2;border-radius:20px;box-shadow:0 8px 30px rgba(18,53,44,.05)}.heroCard{max-width:720px;margin:8vh auto;padding:38px}.eyebrow{text-transform:uppercase;letter-spacing:.18em;font-size:12px;font-weight:800;color:#628278}.heroCard h1,.wizardHead h1,.topbar h1{font-size:38px;margin:7px 0}.heroCard p,.wizardHead p,.topbar p,.muted{color:#61786f}.stack{display:flex;flex-direction:column;gap:14px;margin-top:22px}.twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:13px;font-weight:700;display:flex;flex-direction:column;gap:7px}input,select{width:100%;padding:12px 13px;border:1px solid #cfe0d8;border-radius:11px;background:white;color:#12352c;outline:none}input:focus,select:focus{border-color:#145441;box-shadow:0 0 0 3px rgba(20,84,65,.08)}button{cursor:pointer}.primary,.secondary,.ghost{border:0;border-radius:11px;padding:12px 16px;font-weight:800}.primary{background:#145441;color:white}.primary:disabled{opacity:.4}.primary.big{padding:15px 20px;font-size:16px}.secondary{background:#e9f3ee;color:#145441;border:1px solid #cfe0d8}.ghost{background:white;color:#315c50;border:1px solid #d8e6df}.error{margin-top:14px;padding:11px 13px;background:#fff0f0;color:#9d3030;border-radius:10px;font-size:13px}.wizardHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.modeBadge{background:#dff1e8;color:#145441;padding:9px 12px;border-radius:999px;font-size:12px;font-weight:900}.stepper{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px}.stepper button{border:1px solid #dce8e2;background:#f8fbfa;color:#61786f;border-radius:12px;padding:10px 8px;font-size:12px;font-weight:700}.stepper button span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#e7efeb;margin-right:6px}.stepper button.active{background:#145441;color:white}.stepper button.active span{background:white;color:#145441}.wizardGrid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.75fr);gap:18px}.wizardCard{padding:26px;min-height:620px}.wizardCard h2{margin-top:0;font-size:26px}.subcard{border:1px solid #e0ebe6;border-radius:14px;padding:16px}.subcard h3{margin:0}.checks{display:flex;gap:18px;flex-wrap:wrap}.checks label{display:flex;flex-direction:row;align-items:center}.checks input{width:auto}.chips{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}.chips span{background:#eef5f1;border-radius:999px;padding:7px 10px;font-size:12px}.ok{background:#e8f5ed;padding:12px;border-radius:10px}.housePreview{overflow:hidden;align-self:start;position:sticky;top:20px}.previewTop{padding:18px;border-bottom:1px solid #e8efec;display:flex;justify-content:space-between}.houseTree{padding:12px}.floorNode{border:1px solid #e0ebe6;border-radius:13px;margin:9px 0;overflow:hidden}.floorTitle{display:grid;grid-template-columns:28px 1fr auto;align-items:center;padding:11px;background:#f4f8f6}.floorTitle small,.roomNode small{color:#6b8279}.roomNode{display:flex;justify-content:space-between;padding:9px 12px 9px 40px;border-top:1px solid #edf3f0;font-size:13px}.treeMini{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:18px 0}.treeMini>div{border:1px solid #e0ebe6;border-radius:12px;padding:12px}.treeMini b{display:block;margin-bottom:7px}.treeMini span,.treeMini em{display:block;font-size:12px;color:#61786f;padding:2px 0}.treeMini.large{grid-template-columns:repeat(3,1fr)}.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:20px 0}.summary div{padding:15px;background:#f2f7f4;border-radius:12px}.summary strong{display:block;font-size:25px}.summary span{font-size:11px;color:#61786f}.shell{max-width:1440px;margin:auto;padding:28px}.topbar{display:flex;justify-content:space-between;align-items:end;margin-bottom:20px}.topActions{display:flex;gap:10px;align-items:center}.identity{display:flex;gap:10px;align-items:center;background:#fff;padding:10px 12px;border:1px solid #dce8e2;border-radius:14px}.identity label{display:block;color:#61786f}.identity select{border:0;padding:0;background:transparent;font-weight:700}.grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(320px,.75fr);gap:18px;min-height:calc(100vh - 150px)}.conversation{display:flex;flex-direction:column;overflow:hidden}.panelHead{height:58px;padding:0 20px;border-bottom:1px solid #edf3f0;display:flex;align-items:center;justify-content:space-between}.statusDot{display:inline-block;width:8px;height:8px;background:#2f9e72;border-radius:50%;margin-right:9px}.pill,.count{font-size:12px;font-weight:800;background:#e8f4ee;padding:6px 9px;border-radius:999px}.quickRow{display:flex;gap:8px;overflow:auto;padding:12px 18px;border-bottom:1px solid #edf3f0}.quickRow button{white-space:nowrap;border:1px solid #d8e6df;background:#f8fbfa;border-radius:999px;padding:8px 12px;color:#315c50}.messages{flex:1;padding:22px;overflow:auto;min-height:420px;max-height:62vh}.welcome{background:#f1f7f4;border:1px solid #deebe5;border-radius:16px;padding:18px;max-width:540px;line-height:1.55}.bubble{max-width:75%;padding:12px 14px;border-radius:16px;margin:9px 0;line-height:1.45}.bubble.user{margin-left:auto;background:#145441;color:white}.bubble.jarvis{background:#f0f5f2;border:1px solid #dbe8e1}.bubble small{display:block;margin-top:6px;opacity:.65;font-size:10px}.composer{display:flex;gap:10px;padding:16px;border-top:1px solid #edf3f0}.composer input{flex:1}.composer button{border:0;background:#145441;color:white;border-radius:12px;padding:0 22px;font-weight:800}.rightRail{display:flex;flex-direction:column;gap:18px}.taskList{padding:14px;display:flex;flex-direction:column;gap:10px}.task{border:1px solid #e0ebe6;border-radius:14px;padding:13px}.taskTop{display:flex;justify-content:space-between;gap:10px;font-weight:700}.state{font-size:10px;padding:5px 7px;border-radius:999px;background:#edf3f0}.meta{display:flex;gap:8px;margin-top:8px;font-size:11px;color:#698078}.empty{padding:18px;color:#6b8279;text-align:center}.miniTree{padding:12px}.miniTree>div{padding:10px;border-bottom:1px solid #edf3f0}.miniTree b,.miniTree span{display:block}.miniTree span{font-size:11px;color:#698078;margin-top:4px}.memoryContent{padding:14px}.memoryContent .secondary{width:100%}.memoryNote{font-size:12px;color:#547468;line-height:1.45}.memoryList{max-height:280px;overflow:auto;margin-top:10px}.memoryList>div{padding:8px 0;border-bottom:1px solid #edf3f0}.memoryList b,.memoryList small{display:block}.memoryList small{font-size:11px;color:#698078;margin-top:4px}.visualReview .memoryContent>.secondary{margin-bottom:12px}.visualCard{border:1px solid #deebe4;border-radius:14px;margin:12px 0;padding:12px;display:flex;flex-direction:column;gap:9px}.visualCard>small{font-size:11px;color:#647f74}.visualCard p{font-size:12px;line-height:1.5;margin:2px 0}.visualCard label{font-size:12px}.visualCard select,.visualCard input{padding:9px}.visualEvidence .ghost{padding:8px 10px;font-size:12px}.visualEvidenceBody img,.visualEvidenceBody video{width:100%;max-height:280px;object-fit:contain;border-radius:10px;background:#ecf1ed}.visualActions{display:flex;gap:8px}.visualActions button{flex:1;padding:9px}.visualReview .error{word-break:break-word}@media(max-width:900px){.onboard,.shell{padding:16px}.wizardHead,.topbar{align-items:flex-start;flex-direction:column;gap:12px}.stepper{grid-template-columns:repeat(3,1fr)}.wizardGrid,.grid{grid-template-columns:1fr}.housePreview{position:static}.treeMini.large,.summary{grid-template-columns:repeat(2,1fr)}.topActions{width:100%;flex-wrap:wrap}.identity{flex:1}.twocol{grid-template-columns:1fr}.messages{min-height:360px}.bubble{max-width:88%}}
 `}</style>}
