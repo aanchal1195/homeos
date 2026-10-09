@@ -104,7 +104,7 @@ def _last_reference(s,m):
     recent=s.scalars(select(Message).where(
         Message.household_id==m.household_id,Message.member_id==m.id,
         Message.intent.like("MEMORY_GROUNDED_%")
-    ).order_by(Message.created_at.desc(),Message.id.desc()).limit(6)).all()
+    ).order_by(Message.created_at.desc(),Message.id.desc()).limit(1)).all()
     for msg in recent:
         if msg.action_ref:
             if msg.action_ref.startswith("ambig:"):
@@ -142,8 +142,8 @@ def _name_options(row):
             options.add(norm(alias))
     # A generic "fan" can match multiple registered "Ceiling Fan" entities;
     # never quietly choose the first.
-    options.update(part for part in n.split() if len(part)>=4 and part not in
-                   {"room","bathroom","guest","master","floor","north","south"})
+    options.update(part for part in n.split() if len(part)>=3 and part not in
+                   {"room","bathroom","guest","master","floor","north","south","the","with"})
     return {x for x in options if x}
 
 
