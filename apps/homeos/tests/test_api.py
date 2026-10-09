@@ -261,3 +261,227 @@ def test_chat_can_draft_but_not_auto_assign_a_cleaning_plan():
        json={'text':'Plan cleaning the imaginary sun room for maid'})
     assert ambiguous.status_code==200
     assert ambiguous.json()['intent']=='HOME_MANAGER_CLARIFY_ROOM'
+
+
+def test_guided_floorplan_photo_workflow_requires_review(monkeypatch,tmp_path):
+    import io
+    from PIL import Image
+    from app import guided_setup
+    from app.main import SessionLocal, Floor, Room, Asset, GuidedEvidence
+    from sqlalchemy import select
+    monkeypatch.setenv("HOMEOS_GUIDED_MEDIA_ROOT",str(tmp_path))
+    monkeypatch.delenv("HOMEOS_GUIDED_SETUP_AI_ENABLED",raising=False)
+    monkeypatch.delenv("HOMEOS_GUIDED_SETUP_API_KEY",raising=False)
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    # Owner can supply evidence before any AI key/consent; staff cannot inspect.
+    image=Image.new('RGB',(240,160),(220,220,220))
+    buf=io.BytesIO();image.save(buf,format='PNG');raw=buf.getvalue()
+    payload={'media_kind':'FLOORPLAN','floor_hint':'Terrace'}
+    forbidden=call('POST','/api/guided/upload',maid,data=payload,
+                   files={'file':('layout.png',raw,'image/png')})
+    assert forbidden.status_code==403,forbidden.text
+    uploaded=call('POST','/api/guided/upload',owner,data=payload,
+                  files={'file':('layout.png',raw,'image/png')})
+    assert uploaded.status_code==201,uploaded.text
+    evidence=uploaded.json()['evidence']
+    assert evidence['status']=='UPLOADED' and not evidence['consent_recorded']
+    assert evidence['pending_count']==0
+    assert call('GET',f"/api/guided/evidence/{evidence['id']}/media",
+                maid).status_code==403
+    preview=call('GET',f"/api/guided/evidence/{evidence['id']}/media",owner)
+    assert preview.status_code==200 and preview.content==raw
+    assert 'no-store' in preview.headers.get('cache-control','')
+    with SessionLocal() as db:
+        item=db.get(GuidedEvidence,evidence['id'])
+        assert item and item.storage_key.startswith(item.household_id+'/')
+    assert call('POST','/api/guided/analyze',owner,json={
+        'evidence_id':evidence['id'],'consent_to_external_ai_processing':False
+    }).status_code==422
+    assert call('POST','/api/guided/analyze',owner,json={
+        'evidence_id':evidence['id'],'consent_to_external_ai_processing':True
+    }).status_code==503
+    with SessionLocal() as db:
+        assert db.get(GuidedEvidence,evidence['id']).status=='UPLOADED'
+
+    def scripted(item,path):
+        assert item.media_kind=='FLOORPLAN'
+        assert path.read_bytes()==raw
+        return guided_setup.VisionReadout.model_validate({
+            'findings':[
+               {'kind':'FLOOR','name':'Terrace','evidence_summary':'Label visible on synthetic plan'},
+               {'kind':'ROOM','name':'Store Room','floor_hint':'Terrace',
+                 'room_kind':'store','evidence_summary':'Synthetic annotated room on plan'},
+            ],
+            'unresolved':['Is the store accessible from the terrace?'],
+            'suggested_next_capture':'Photograph the store doorway.'})
+    monkeypatch.setattr(guided_setup,'_infer',scripted)
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_AI_ENABLED','true')
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_API_KEY','CI_SCRIPTED_KEY')
+    analyzed=call('POST','/api/guided/analyze',owner,json={
+        'evidence_id':evidence['id'],'consent_to_external_ai_processing':True
+    })
+    assert analyzed.status_code==200,analyzed.text
+    assert analyzed.json()['evidence']['status']=='ANALYZED'
+    proposals=analyzed.json()['evidence']['suggestions']
+    assert {x['kind'] for x in proposals}=={'FLOOR','ROOM'}
+    with SessionLocal() as db:
+        assert db.scalar(select(Floor.id).where(Floor.name=='Terrace')) is None
+        assert db.scalar(select(Room.id).where(Room.name=='Store Room')) is None
+    # Accept rooms only after their real floor is owner verified.
+    requested=call('POST',f"/api/guided/evidence/{evidence['id']}/decide",owner,
+      json={'suggestion_id':proposals[1]['id'],'decision':'ACCEPT'})
+    assert requested.status_code==422,requested.text
+    registered=call('POST',f"/api/guided/evidence/{evidence['id']}/decide",owner,
+      json={'suggestion_id':proposals[0]['id'],'decision':'ACCEPT'})
+    assert registered.status_code==200,registered.text
+    floor_id=registered.json()['applied_id']
+    assert floor_id
+    room=call('POST',f"/api/guided/evidence/{evidence['id']}/decide",owner,
+       json={'suggestion_id':proposals[1]['id'],'decision':'ACCEPT',
+             'floor_id':floor_id,'corrected_name':'Store room'})
+    assert room.status_code==200,room.text
+    assert room.json()['applied_id']
+    assert call('POST',f"/api/guided/evidence/{evidence['id']}/decide",owner,
+       json={'suggestion_id':proposals[1]['id'],'decision':'ACCEPT',
+             'floor_id':floor_id}).status_code==409
+    with SessionLocal() as db:
+        assert db.get(Room,room.json()['applied_id']).name=='Store room'
+
+
+def test_guided_room_photo_rejection_and_adaptive_next(monkeypatch,tmp_path):
+    import io
+    from PIL import Image
+    from app import guided_setup
+    from app.main import SessionLocal, Asset, Room, GuidedDecision
+    from sqlalchemy import select
+    monkeypatch.setenv('HOMEOS_GUIDED_MEDIA_ROOT',str(tmp_path))
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_AI_ENABLED','true')
+    monkeypatch.setenv('HOMEOS_GUIDED_SETUP_API_KEY','CI_SCRIPTED_KEY')
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    home=call('GET','/api/setup-state',owner).json()['property']
+    kitchen=next(r['id'] for f in home['floors'] for r in f['rooms'] if r['name']=='Kitchen')
+    image=Image.new('RGB',(50,50),(20,120,60))
+    buf=io.BytesIO();image.save(buf,format='PNG')
+    uploaded=call('POST','/api/guided/upload',owner,data={
+       'media_kind':'ROOM_PHOTO','room_id':kitchen,'room_hint':'Kitchen'},
+       files={'file':('test.png',buf.getvalue(),'image/png')})
+    assert uploaded.status_code==201,uploaded.text
+    evidence=uploaded.json()['evidence']['id']
+    monkeypatch.setattr(guided_setup,'_infer',lambda *_:guided_setup.VisionReadout.model_validate({
+      'findings':[
+        {'kind':'ASSET','name':'Electric Kettle','asset_type':'appliance',
+         'evidence_summary':'Synthetic model recognized countertop object'},
+        {'kind':'ASSET','name':'Bread Toaster','asset_type':'appliance',
+         'evidence_summary':'Synthetic false positive to reject'},
+      ],
+      'unresolved':['Counter behind fridge not visible'] }))
+    analyzed=call('POST','/api/guided/analyze',owner,json={
+      'evidence_id':evidence,'consent_to_external_ai_processing':True})
+    assert analyzed.status_code==200,analyzed.text
+    suggestions=analyzed.json()['evidence']['suggestions']
+    assert call('POST',f'/api/guided/evidence/{evidence}/decide',maid,
+      json={'suggestion_id':suggestions[0]['id'],'decision':'ACCEPT'}).status_code==403
+    assert call('POST',f'/api/guided/evidence/{evidence}/decide',owner,
+      json={'suggestion_id':suggestions[1]['id'],'decision':'REJECT'}).status_code==200
+    with SessionLocal() as db:
+        assert db.scalar(select(Asset.id).where(Asset.name=='Bread Toaster')) is None
+    assert call('POST',f'/api/guided/evidence/{evidence}/decide',owner,json={
+      'suggestion_id':suggestions[0]['id'],'decision':'ACCEPT',
+      'corrected_name':'Electric Kettle','room_id':kitchen}).status_code==200
+    with SessionLocal() as db:
+        kettle=db.scalar(select(Asset).where(Asset.name=='Electric Kettle'))
+        assert kettle and kettle.room_id==kitchen
+    # A second room photo naming the existing kettle cannot silently register a
+    # duplicate or turn an observation into a guessed relocation.
+    bathroom=next(r['id'] for f in home['floors'] for r in f['rooms']
+                  if r['name']=='Guest Bathroom')
+    duplicate=call('POST','/api/guided/upload',owner,data={
+       'media_kind':'ROOM_PHOTO','room_id':bathroom,'room_hint':'Guest Bathroom'},
+       files={'file':('another.png',buf.getvalue(),'image/png')})
+    assert duplicate.status_code==201,duplicate.text
+    duplicate_id=duplicate.json()['evidence']['id']
+    monkeypatch.setattr(guided_setup,'_infer',
+       lambda *_:guided_setup.VisionReadout.model_validate({
+         'findings':[{'kind':'ASSET','name':'Electric Kettle',
+            'asset_type':'appliance','evidence_summary':'Synthetic duplicate label'}]}))
+    seen=call('POST','/api/guided/analyze',owner,json={
+        'evidence_id':duplicate_id,'consent_to_external_ai_processing':True})
+    assert seen.status_code==200,seen.text
+    repeated=seen.json()['evidence']['suggestions'][0]
+    conflict=call('POST',f'/api/guided/evidence/{duplicate_id}/decide',owner,
+        json={'suggestion_id':repeated['id'],'decision':'ACCEPT',
+              'room_id':bathroom})
+    assert conflict.status_code==409,conflict.text
+    with SessionLocal() as db:
+        assets=db.scalars(select(Asset).where(Asset.name=='Electric Kettle')).all()
+        assert len(assets)==1 and assets[0].room_id==kitchen
+    # Close the ambiguous finding so adaptive guidance does not treat it as fact.
+    assert call('POST',f'/api/guided/evidence/{duplicate_id}/decide',owner,
+       json={'suggestion_id':repeated['id'],'decision':'REJECT'}).status_code==200
+    status=call('GET','/api/guided/status',owner)
+    assert status.status_code==200,status.text
+    assert status.json()['counts']['pending_review']==0
+    # Without consent next-step planning remains entirely local.
+    decision=call('POST','/api/guided/next',owner,json={
+      'consent_to_external_ai_processing':False})
+    assert decision.status_code==200
+    assert decision.json()['guidance']['source']=='DETERMINISTIC_FALLBACK'
+    # A model may choose among server-validated evidence requests, never create rooms.
+    monkeypatch.setattr(guided_setup,'_provider',lambda *_,**__: {
+      'step':'CAPTURE_ROOM','room_id':kitchen,
+      'question':'Could you show the kitchen pantry with a second image?',
+      'reason':'The registered pantry has not been inspected from this angle.'})
+    ai=call('POST','/api/guided/next',owner,json={
+      'consent_to_external_ai_processing':True})
+    assert ai.status_code==200,ai.text
+    assert ai.json()['guidance']['source']=='AI_GUIDED'
+    assert ai.json()['guidance']['room_id']==kitchen
+    with SessionLocal() as db:
+        stored=db.get(GuidedDecision,ai.json()['decision_id'])
+        assert stored.source=='AI_GUIDED'
+    # Fabricated room IDs and unjustified 'READY' decisions fall back safely.
+    monkeypatch.setattr(guided_setup,'_provider',lambda *_,**__: {
+      'step':'READY_TO_LAUNCH','room_id':None,
+      'question':'Finished all rooms and inventory?',
+      'reason':'AI guessing completeness without sufficient evidence.'})
+    unsafe=call('POST','/api/guided/next',owner,json={
+      'consent_to_external_ai_processing':True})
+    assert unsafe.status_code==200
+    assert unsafe.json()['guidance']['source']=='DETERMINISTIC_FALLBACK'
+
+
+def test_guided_video_validates_real_frames_and_size(monkeypatch,tmp_path):
+    import shutil,subprocess
+    from app import guided_setup
+    import pytest
+    if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+        pytest.skip('ffmpeg not available on this test runner')
+    monkeypatch.setenv('HOMEOS_GUIDED_MEDIA_ROOT',str(tmp_path))
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    movie=tmp_path/'test.mp4'
+    subprocess.run(['ffmpeg','-nostdin','-v','error','-f','lavfi',
+      '-i','color=c=blue:s=160x120:d=1.5','-pix_fmt','yuv420p',
+      '-y',str(movie)],check=True,timeout=15)
+    raw=movie.read_bytes()
+    bad=call('POST','/api/guided/upload',owner,data={'media_kind':'ROOM_VIDEO'},
+       files={'file':('fake.mp4',b'not-a-video','video/mp4')})
+    assert bad.status_code==415,bad.text
+    permitted=call('POST','/api/guided/upload',owner,data={
+       'media_kind':'ROOM_VIDEO','room_hint':'New Guest Room'},
+       files={'file':('walk.mp4',raw,'video/mp4')})
+    assert permitted.status_code==201,permitted.text
+    eid=permitted.json()['evidence']['id']
+    assert call('GET',f'/api/guided/evidence/{eid}/media',maid).status_code==403
+    from app.main import SessionLocal, GuidedEvidence
+    with SessionLocal() as db:
+        item=db.get(GuidedEvidence,eid)
+        image_frames=guided_setup._encode(guided_setup._file_of(item),'video/mp4')
+    assert len(image_frames)>=1 and len(image_frames)<=3
+    assert call('POST','/api/guided/analyze',owner,json={
+      'evidence_id':eid,'consent_to_external_ai_processing':False}).status_code==422

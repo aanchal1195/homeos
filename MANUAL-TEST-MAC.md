@@ -127,3 +127,60 @@ docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml down
 real LLM response accuracy, real-photo vision accuracy, or migration against
 your household backup. You perform the manual test when ready; merging GitHub
 PRs does not automatically update any running Docker application.
+
+## M5 — First guided floor-plan, photo and walkthrough test (new onboarding UI)
+
+This feature is part of the **Setup Wizard**, before the manual Property and
+Floors steps. It does not require you to turn on Home Memory merely to
+upload evidence, and you may upload before registering any room. Images and
+videos remain private until a separate explicit AI-analysis consent.
+
+If you previously downloaded HomeOS as a GitHub ZIP because macOS Git/Xcode
+tools were unavailable, do **not** delete your old sandbox data or `.env.smoke`.
+After M5 is merged, you can refresh only the source:
+
+```bash
+cd ~
+curl -fL https://github.com/aanchal1195/homeos/archive/refs/heads/main.zip -o homeos-latest.zip
+unzip -q homeos-latest.zip
+mv homeos-main homeos-sandbox-v5-source
+cp ~/homeos-sandbox-source/.env.smoke ~/homeos-sandbox-v5-source/.env.smoke
+cd ~/homeos-sandbox-v5-source
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml config --quiet
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml up -d --build api web
+```
+
+This reuses only the existing **homeos-sandbox** project and its test
+volumes, not the original `homeos` project. Rebuilding includes ffmpeg to
+validate short videos, and may use additional memory on Docker Desktop.
+Open **http://localhost:3300** and check the guided setup panel above the
+manual form.
+
+To validate the form **without an API key**: choose `Floor plan photo`
+(optional), `Room photographs` or `Room walkthrough video`; upload synthetic
+media. The upload must show `UPLOADED` and an explicit `not sent to AI`
+message. `Decide the next useful step` runs the local coverage policy.
+AI analysis buttons must remain unavailable without a separate provider key.
+
+To authorize a **synthetic test** of model-driven recognition and next-step
+planning, read `apps/homeos/M5-VISUAL-ONBOARDING.md`, then set:
+
+```dotenv
+HOMEOS_GUIDED_SETUP_AI_ENABLED=true
+HOMEOS_GUIDED_SETUP_API_KEY=<your own OpenAI API key>
+HOMEOS_GUIDED_SETUP_MODEL=gpt-4.1-mini
+```
+
+Restart the sandbox API:
+
+```bash
+docker compose --env-file .env.smoke -f compose.yaml -f compose.smoke.yaml up -d --force-recreate api
+```
+
+For each private image/video, explicitly tick consent and click **Analyze
+this evidence with AI**; review, rename, reject or approve individual
+suggestions. To let the separate planner choose the next question using
+floor/room names and coverage metadata, explicitly tick its consent and click
+**Decide the next useful step**. The model cannot auto-register or assign
+work. Real provider calls and browser walkthroughs have **not** been
+validated by ChatGPT; report incorrect detections and clear failures.

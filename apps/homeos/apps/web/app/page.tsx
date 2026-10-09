@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import GuidedSetupPanel from './GuidedSetupPanel';
 
 type Member={id:string;name:string;role:string;language:string};
 type Zone={id:string;name:string;kind:string};
@@ -18,7 +19,7 @@ type MemoryEntity={id:string;type:string;name:string;location?:string|null;sourc
 type MemoryOverview={entities:MemoryEntity[];counts:Record<string,number>;authoritative_source:string};
 type ManagerPlan={id:string;title:string;status:string;task_id:string|null;task_status:string|null;
   evidence_count:number;follow_up:string;room_id:string;assignee_id:string;due_date:string;owner_confirmed:boolean};
-type MemoryHistory={asset:{id:string;name:string};locations:{location_name:string;verification_status:string;source_type:string;recorded_at:string;observation_id?:string|null}[];events:{type:string;occurred_at:string;observation_id?:string|null}[];disclaimer:string};
+type MemoryHistory={asset:{id:string;name:string};locations:{location_name:string;verification_status:string;source_type:string;recorded_at:string;observation_id?:string|null;source_ref?:string|null}[];events:{type:string;occurred_at:string;observation_id?:string|null}[];disclaimer:string};
 
 type VisualLocation={id:string;name:string;type:string};
 type VisualFinding={id:string;label:string;description:string;confidence:number|null;media_id:string;model_version:string|null;frame_timestamp_ms:number|null;inspected_location:string;matched_legacy_asset_id:string|null;locations:VisualLocation[];observed_at:string};
@@ -66,6 +67,8 @@ function SetupWizard({members,memberId,current,state,onIdentity,onRefresh,error,
   const addScope=(e:FormEvent)=>{e.preventDefault();act(async()=>{await api('/api/virtual-house/staff-scopes',memberId,{method:'POST',body:JSON.stringify({...scope,floor_id:scope.floor_id||null,room_id:scope.room_id||null})});})};
   const complete=()=>act(async()=>{await api('/api/setup/complete',memberId,{method:'POST',body:'{}'});await onRefresh()});
   return <main className="onboard wide"><section className="wizardHead"><div><div className="eyebrow">HomeOS · Virtual House</div><h1>Build the house JARVIS will manage.</h1><p>Tasks, maintenance and inspections will resolve against this digital twin.</p></div><div className="modeBadge">SETUP MODE</div></section>
+    {current?.role==='owner'&&<GuidedSetupPanel memberId={memberId} floors={floors} onUpdated={onRefresh}/>}
+    <p className="muted" style={{margin:'0 0 12px'}}>Prefer typing? The original manual setup remains available below.</p>
     <section className="stepper">{['Property','Structure','Rooms','Zones & assets','Staff access','Review'].map((s,i)=><button key={s} onClick={()=>setStep(i+1)} className={step===i+1?'active':''}><span>{i+1}</span>{s}</button>)}</section>
     <section className="wizardGrid"><div className="wizardCard">
       {step===1&&<><h2>1. Property</h2><p className="muted">Create the top-level property record.</p><div className="stack"><label>House name<input value={home.name} onChange={e=>setHome({...home,name:e.target.value})}/></label><label>Property type<select value={home.property_type} onChange={e=>setHome({...home,property_type:e.target.value})}><option value="independent_house">Independent house</option><option value="apartment">Apartment</option><option value="villa">Villa</option></select></label><label>Address label (optional)<input placeholder="e.g. Meerut home" value={home.address_label} onChange={e=>setHome({...home,address_label:e.target.value})}/></label><button className="primary" onClick={saveProperty}>Save & continue</button></div></>}
@@ -88,7 +91,10 @@ function Operational({members,memberId,current,state,onIdentity,onRefreshState,e
   return <main className="shell"><section className="topbar"><div><div className="eyebrow">HomeOS</div><h1>JARVIS</h1><p>{property?.name} · household operating assistant</p></div><div className="topActions"><button className="ghost" onClick={editHouse} disabled={current?.role!=='owner'}>Edit virtual house</button><div className="identity"><label>Acting as</label><select value={memberId} onChange={e=>onIdentity(e.target.value)}>{members.map(m=><option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}</select></div></div></section><section className="grid"><div className="panel conversation"><div className="panelHead"><div><span className="statusDot"/>JARVIS is operational</div><span className="pill">{current?.role}</span></div>{capability&&<p className="chatCapability" role="status">{capability.status==='AGENT_CONFIGURED_UNVERIFIED'?'Reasoning agent configured (availability checked per request)':
 capability.status==='DETERMINISTIC_FALLBACK'?'Deterministic assistant — reasoning agent is disabled':
 capability.status==='AGENT_MISSING_KEY'?'Reasoning agent unavailable — provider credential missing':
-'Staff mode — reasoning agent is owner-only'}. {capability.reason}</p>}<div className="quickRow">{(current?.role==='owner'?['How many rooms do we have?','Aaj ghar mein kya pending hai?','Maid ko Kitchen saaf karwa do']:['Aaj kya kaam hai?','Kaam kaise karna hai?','Kitchen ho gaya']).map(q=><button key={q} onClick={()=>setText(q)}>{q}</button>)}</div><div className="messages">{history.length===0&&<div className="welcome"><strong>Virtual house ready.</strong><br/>I answer from your configured virtual house, tasks, staff, assets and open issues, and I preserve recent conversation context.</div>}{history.map((m,i)=><div key={i} className={`bubble ${m.who}`}><div>{m.text}</div>{m.intent&&<small>{m.mode==='JARVIS_AGENT'?'Reasoning agent · grounded tools':m.mode==='JARVIS_AGENT_UNAVAILABLE'?'Agent unavailable · no fallback actions':'Deterministic fallback'} · {m.intent.replaceAll('_',' ')}</small>}{m.who==='jarvis'&&m.id&&m.mode?.startsWith('JARVIS_AGENT')&&<AgentTurnEvidence memberId={memberId} messageId={m.id}/>}</div>)}</div><form className="composer" onSubmit={send}><input value={text} onChange={e=>setText(e.target.value)} placeholder={current?.role==='owner'?'Tell JARVIS what needs to happen…':'Hindi, English ya Hinglish mein baat karein…'}/><button disabled={busy}>{busy?'…':'Send'}</button></form>{error&&<div className="error">{error}</div>}</div><aside className="rightRail"><div className="panel today"><div className="panelHead"><strong>Today</strong><span className="count">{tasks.length}</span></div><div className="taskList">{tasks.length===0&&<div className="empty">No pending tasks.</div>}{tasks.map(t=><div className="task" key={t.id}><div className="taskTop"><span>{t.title}</span><span className="state">{t.status.replaceAll('_',' ')}</span></div><div className="meta">{t.assignee_name&&<span>{t.assignee_name}</span>}{t.room_name&&<span>{t.room_name}</span>}<span>{t.source}</span></div></div>)}</div></div>{current?.role==='owner'&&<div className="panel miniHouse"><div className="panelHead"><strong>Virtual house</strong><span className="count">{state?.counts.rooms||0}</span></div><div className="miniTree">{property?.floors.map(f=><div key={f.id}><b>{f.name}</b><span>{f.rooms.map(r=>r.name).join(' · ')||'No rooms'}</span></div>)}</div></div>}{current?.role==='owner'&&<><MemoryPanel memberId={memberId}/><PhotoInspectionPanel memberId={memberId} onAnalyzed={()=>setAnalysisRevision(n=>n+1)}/><VisualReviewPanel memberId={memberId} revision={analysisRevision}/><HomeManagerPanel memberId={memberId} members={members} state={state} revision={managerRevision} onAssigned={()=>load(memberId)}/></>}</aside></section><GlobalStyles/></main>
+'Staff mode — reasoning agent is owner-only'}. {capability.reason}</p>}<div className="quickRow">{(current?.role==='owner'?['How many rooms do we have?','Aaj ghar mein kya pending hai?','Maid ko Kitchen saaf karwa do']:['Aaj kya kaam hai?','Kaam kaise karna hai?','Kitchen ho gaya']).map(q=><button key={q} onClick={()=>setText(q)}>{q}</button>)}</div><div className="messages">{history.length===0&&<div className="welcome"><strong>Virtual house ready.</strong><br/>I answer from your configured virtual house, tasks, staff, assets and open issues, and I preserve recent conversation context.</div>}{history.map((m,i)=><div key={i} className={`bubble ${m.who}`}><div>{m.text}</div>{m.intent&&<small>{m.mode==='JARVIS_AGENT'?'Reasoning agent · grounded tools':m.mode==='JARVIS_AGENT_UNAVAILABLE'?'Agent unavailable · no fallback actions':'Deterministic fallback'} · {m.intent.replaceAll('_',' ')}</small>}{m.who==='jarvis'&&m.id&&m.mode?.startsWith('JARVIS_AGENT')&&<AgentTurnEvidence memberId={memberId} messageId={m.id}/>}</div>)}</div><form className="composer" onSubmit={send}><input value={text} onChange={e=>setText(e.target.value)} placeholder={current?.role==='owner'?'Tell JARVIS what needs to happen…':'Hindi, English ya Hinglish mein baat karein…'}/><button disabled={busy}>{busy?'…':'Send'}</button></form>{error&&<div className="error">{error}</div>}</div><aside className="rightRail"><div className="panel today"><div className="panelHead"><strong>Today</strong><span className="count">{tasks.length}</span></div><div className="taskList">{tasks.length===0&&<div className="empty">No pending tasks.</div>}{tasks.map(t=><div className="task" key={t.id}><div className="taskTop"><span>{t.title}</span><span className="state">{t.status.replaceAll('_',' ')}</span></div><div className="meta">{t.assignee_name&&<span>{t.assignee_name}</span>}{t.room_name&&<span>{t.room_name}</span>}<span>{t.source}</span></div></div>)}</div></div>{current?.role==='owner'&&<div className="panel miniHouse"><div className="panelHead"><strong>Virtual house</strong><span className="count">{state?.counts.rooms||0}</span></div><div className="miniTree">{property?.floors.map(f=><div key={f.id}><b>{f.name}</b><span>{f.rooms.map(r=>r.name).join(' · ')||'No rooms'}</span></div>)}</div></div>}{current?.role==='owner'&&<><MemoryPanel memberId={memberId}/><PhotoInspectionPanel memberId={memberId} onAnalyzed={()=>setAnalysisRevision(n=>n+1)}/><VisualReviewPanel memberId={memberId} revision={analysisRevision}/>
+<details className="panel guidedContinued"><summary style={{padding:'14px',cursor:'pointer',fontWeight:650}}>Continue guided room discovery</summary><div style={{padding:'8px'}}>
+  <GuidedSetupPanel memberId={memberId} floors={property?.floors||[]} onUpdated={onRefreshState}/>
+</div></details><HomeManagerPanel memberId={memberId} members={members} state={state} revision={managerRevision} onAssigned={()=>load(memberId)}/></>}</aside></section><GlobalStyles/></main>
 }
 
 
@@ -164,6 +170,8 @@ function MemoryPanel({memberId}:{memberId:string}){
             <b>{loc.location_name}</b>
             <small>{loc.verification_status} · {loc.source_type} · {new Date(loc.recorded_at).toLocaleString()}</small>
             {loc.observation_id&&<EvidencePreview memberId={memberId} observationId={loc.observation_id}/>}
+            {loc.source_ref?.startsWith('guided-setup:')&&<EvidencePreview memberId={memberId}
+              guidedEvidenceId={loc.source_ref.split(':')[1]}/>} 
           </div>)}
           <h4>Events</h4>
           {timeline.events.map((event,i)=><p key={i} className="memoryNote">{event.type} · {new Date(event.occurred_at).toLocaleString()}</p>)}
@@ -173,7 +181,7 @@ function MemoryPanel({memberId}:{memberId:string}){
 }
 
 
-function EvidencePreview({memberId,observationId}:{memberId:string;observationId:string}){
+function EvidencePreview({memberId,observationId,guidedEvidenceId}:{memberId:string;observationId?:string;guidedEvidenceId?:string}){
   const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[kind,setKind]=useState('');
   const [error,setError]=useState('');
   useEffect(()=>{
@@ -183,7 +191,9 @@ function EvidencePreview({memberId,observationId}:{memberId:string;observationId
     (async()=>{
       try{
         setError('');
-        const response=await fetch('/api/memory/visual/'+observationId+'/evidence',
+        const path=guidedEvidenceId?'/api/guided/evidence/'+guidedEvidenceId+'/media':
+          '/api/memory/visual/'+observationId+'/evidence';
+        const response=await fetch(path,
           {headers:{'X-Member-Id':memberId},signal:controller.signal,cache:'no-store'});
         if(!response.ok)throw new Error('Evidence unavailable (HTTP '+response.status+').');
         const blob=await response.blob();
@@ -194,7 +204,7 @@ function EvidencePreview({memberId,observationId}:{memberId:string;observationId
       }catch(e){if(active)setError(String(e));}
     })();
     return ()=>{active=false;controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl);setUrl('')};
-  },[open,memberId,observationId]);
+  },[open,memberId,observationId,guidedEvidenceId]);
   return <div className="visualEvidence">
     <button className="ghost" type="button" onClick={()=>setOpen(v=>!v)}>{open?'Hide evidence':'View original evidence'}</button>
     {open&&<div className="visualEvidenceBody">{error&&<p className="memoryNote">{error}</p>}

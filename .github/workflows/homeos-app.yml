@@ -9,6 +9,7 @@ on:
       - "scripts/verify-jarvis-journey-ci.py"
       - "scripts/verify-home-manager-ci.py"
       - "scripts/verify-reasoning-agent-ci.py"
+      - "scripts/verify-guided-setup-ci.py"
       - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
@@ -30,6 +31,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Install ffmpeg for actual MP4 walkthrough decoding test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: PYTHONPATH=. pytest -q
       - name: Verify historical Alembic revisions install cleanly from scratch
         env:
@@ -37,11 +40,11 @@ jobs:
           DATABASE_URL: sqlite:////tmp/homeos-legacy-alembic-test.sqlite
         run: |
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0006'
+          PYTHONPATH=. alembic current | grep '0007'
           python - <<'PY'
           import sqlite3
           db=sqlite3.connect('/tmp/homeos-legacy-alembic-test.sqlite')
-          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans','agent_runs'):
+          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans','agent_runs','guided_evidence','guided_decisions'):
               assert db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(),table
           columns={r[1] for r in db.execute('PRAGMA table_info(assets)')}
           assert {'room_id','zone_id','asset_type'}.issubset(columns),columns
@@ -72,11 +75,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r apps/homeos/requirements.txt -r services/memory/requirements.txt
-      - name: Install the real M2C schema from Alembic 0001 to 0006
+      - name: Install the real M2C schema from Alembic 0001 to 0007
         run: |
           cd apps/homeos
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0006'
+          PYTHONPATH=. alembic current | grep '0007'
       - name: Install the graph and visual memory tables
         run: |
           for sql in services/memory/schema/00*.sql; do
@@ -116,6 +119,12 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-reasoning-agent-ci.py
+      - name: Verify private guided onboarding photo -> owner evidence -> real graph -> JARVIS (scripted AI)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+          HOMEOS_JARVIS_AGENT_ENABLED: 'false'
+        run: python scripts/verify-guided-setup-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
