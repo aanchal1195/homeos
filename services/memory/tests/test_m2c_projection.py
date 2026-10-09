@@ -63,7 +63,7 @@ def test_m2c_projection_idempotence_and_conflict(sample):
     original_location=ids[sample["kitchen"]]
     record=client.get(f"/api/v1/memory/entities/{eid}/location",headers=h)
     assert record.status_code==200
-    assert record.json()["path"][0]["id"]==original_location
+    assert record.json()["path"][0]["id"]==str(original_location)
     # Simulate owner overriding a projected location. Legacy backfill must NOT erase it.
     changed=client.post(f"/api/v1/memory/entities/{eid}/location",headers=h,json={
       "location_id":str(other_location),
@@ -77,4 +77,4 @@ def test_m2c_projection_idempotence_and_conflict(sample):
     assert another.status_code==200,another.text
     assert another.json()["counts"].get("conflicts_proposed",0)==0
     current=client.get(f"/api/v1/memory/entities/{eid}/location",headers=h).json()
-    assert current["path"][0]["id"]==other_location
+    assert current["path"][0]["id"]==str(other_location)
