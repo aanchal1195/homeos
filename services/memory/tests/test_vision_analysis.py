@@ -63,6 +63,10 @@ def test_image_observations_are_pending_and_analysis_is_idempotent(api,monkeypat
           FROM memory_observations WHERE household_id=%s AND analysis_run_id=%s ORDER BY label""",
           (os.environ["HOMEOS_HOUSEHOLD_ID"],result.json()["run_id"])).fetchall()
     assert len(rows)==2
+    listing=client.get(f"/api/v1/visual/sessions/{sid}/observations",headers=headers)
+    assert listing.status_code==200,listing.text
+    assert len(listing.json()["observations"])==2
+    assert all(x["status"]=="PENDING" for x in listing.json()["observations"])
     assert all(x["status"]=="PENDING" for x in rows)
     assert next(x for x in rows if x["label"]=="refrigerator")["subject_id"]==uuid.UUID(fridge)
     assert next(x for x in rows if x["label"]=="toaster")["subject_id"] is None
