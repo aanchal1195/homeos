@@ -726,7 +726,12 @@ def agent_trace(message_id:str,m:Member=Depends(actor),s:Session=Depends(db)):
 @app.get('/api/chat/history')
 def history(m:Member=Depends(actor),s:Session=Depends(db)):
     xs=s.scalars(select(Message).where(Message.household_id==m.household_id,Message.member_id==m.id).order_by(Message.created_at.desc()).limit(50)).all()[::-1]
-    return [{'id':x.id,'text':x.content,'reply':x.reply,'intent':x.intent,'action_ref':x.action_ref,'at':x.created_at.isoformat()} for x in xs]
+    linked={x.message_id:x.mode for x in s.scalars(select(AgentRun).where(
+        AgentRun.household_id==m.household_id,
+        AgentRun.member_id==m.id)).all()} if m.role=='owner' else {}
+    return [{'id':x.id,'text':x.content,'reply':x.reply,'intent':x.intent,
+             'mode':linked.get(x.id,'JARVIS_DETERMINISTIC_FALLBACK'),
+             'action_ref':x.action_ref,'at':x.created_at.isoformat()} for x in xs]
 
 @app.get('/api/context')
 def context(m:Member=Depends(actor),s:Session=Depends(db)):
