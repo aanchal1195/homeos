@@ -230,3 +230,30 @@ def test_optional_model_cannot_substitute_a_previous_asset_for_unknown_subject(m
     assert guessed and guessed.subject is None and guessed.room is None
     referred=router.optional_intent('Where is it now?',[],[],previous)
     assert referred and referred.subject=='Refrigerator' and referred.room is None
+
+
+def test_chat_can_draft_but_not_auto_assign_a_cleaning_plan():
+    members=call('GET','/api/demo-members').json()
+    owner=next(x['id'] for x in members if x['role']=='owner')
+    maid=next(x['id'] for x in members if x['role']=='maid')
+    before=len(call('GET','/api/today',maid).json()['tasks'])
+    message=call('POST','/api/chat',owner,
+       json={'text':'Please plan cleaning Guest Bathroom for maid'})
+    assert message.status_code==200,message.text
+    reply=message.json()
+    assert reply['intent']=='HOME_MANAGER_PLAN_DRAFTED',reply
+    assert 'No task has been assigned yet' in reply['reply']
+    assert len(call('GET','/api/today',maid).json()['tasks'])==before
+    drafted=call('GET',f"/api/home-manager/plans/{reply['action_ref']}",owner)
+    assert drafted.status_code==200 and drafted.json()['status']=='PROPOSED'
+    assert drafted.json()['task_id'] is None
+    assert call('POST',f"/api/home-manager/plans/{reply['action_ref']}/confirm",
+                maid,json={}).status_code==403
+    confirmed=call('POST',f"/api/home-manager/plans/{reply['action_ref']}/confirm",
+                   owner,json={})
+    assert confirmed.status_code==200 and confirmed.json()['task_id']
+    assert len(call('GET','/api/today',maid).json()['tasks'])==before+1
+    ambiguous=call('POST','/api/chat',owner,
+       json={'text':'Plan cleaning the imaginary sun room for maid'})
+    assert ambiguous.status_code==200
+    assert ambiguous.json()['intent']=='HOME_MANAGER_CLARIFY_ROOM'
