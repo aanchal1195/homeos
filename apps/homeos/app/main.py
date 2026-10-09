@@ -654,4 +654,5 @@ def get_memory_overview(m:Member=Depends(actor),s:Session=Depends(db)):
 def health():return {'status':'ok','mode':'homeos-jarvis-m2c-contextual','version':'0.4.0'}
 
 # M3E owner-review endpoints are imported after demo actor and ORM definitions.
-import app.visual_review  # noqa: E402,F401
+from importlib import import_module as _import_review_module
+_import_review_module('app.visual_review')
