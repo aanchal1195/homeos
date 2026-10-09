@@ -35,11 +35,14 @@ services:
       HOMEOS_DEMO_MODE: 'true'
       PYTHONPATH: /srv/homeos
       HOMEOS_MEMORY_ENABLED: ${HOMEOS_MEMORY_ENABLED:-false}
+      HOMEOS_PRIVATE_MEMORY_MEDIA_ROOT: /srv/homeos/private_memory_media
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
     volumes:
       - uploads:/srv/homeos/uploads
+      # Read-only access for owner-authenticated inspection evidence previews.
+      - memory_media:/srv/homeos/private_memory_media:ro
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

@@ -15,7 +15,7 @@ The original M2C HomeOS Next.js/FastAPI source is now tracked in `apps/homeos/`.
 1. Inspect the current Docker project, volumes and password. From your existing HomeOS folder, run `docker compose ps` and `docker volume ls` to confirm the project is named `homeos`.
 2. Take a **verified** PostgreSQL backup while the original project is still running. `scripts/backup-homeos-db.sh` provides a compatible command when the new root Compose is configured. Do not treat non-empty dump bytes as proof of a successful restore.
 3. Clone/pull this unified GitHub repository in a separate folder. Copy `.env.example` to `.env` and set `POSTGRES_PASSWORD` to the **current** database password, not a new one. Leave `HOMEOS_MEMORY_ENABLED=false` initially.
-4. Restore a copy of the backup to a **separate test database** and run Alembic `0004` and memory migrations `001` through `004` there. Validate virtual-house entity counts and household UUID. No user data is copied to GitHub.
+4. Restore a copy of the backup to a **separate test database** and run Alembic `0004` and memory migrations `001` through `005` there. Validate virtual-house entity counts and household UUID. No user data is copied to GitHub.
 5. Only after the restored-copy test passes, update the original `homeos` deployment in place. The root Compose reuses the named volumes. Starting the API automatically executes `alembic upgrade head` — do not run it against live data without backup and preflight checks.
 6. Apply the memory migrations with the included `scripts/install-memory-schema.sh` (requires `HOMEOS_ACK_BACKUP=yes`), or use your standard reviewed migration process.
 7. Set `HOMEOS_MEMORY_ENABLED=true` and rebuild the API/web services. Use the **existing owner identity** to select `Sync virtual house` under Home Memory; repeat and verify it creates zero duplicate entities.
@@ -30,5 +30,13 @@ The original M2C `0001_initial.py` used `Base.metadata.create_all()` from the la
 
 - End-to-end behavior against **your running** PostgreSQL data, Docker versions, and browser.
 - Live vision-provider calls with real household photographs.
-- Automatic visual-observation reconciliation into verified graph facts.
+- Owner-reviewed visual reconciliation is implemented but not yet validated against your running household database or real media volume.
 - Production authentication, staff/device permissions, and autonomous workflows.
+
+## M3E owner visual review deployment
+
+The owner-only **Visual review** panel is visible in HomeOS after visual analysis creates evidence-backed PENDING observations. The API reads media from the `memory_media` volume mounted **read-only** and requires a local owner identity. Approval of a new asset or its location updates the original `assets` table and the graph in one database transaction, while preserving evidence, review records, and history. A rejection or `VERIFY_ONLY` review cannot mutate operational assets. The owner must explicitly enter the verified asset name and choose a mapped location; the model's label is not automatically trusted.
+
+Migration `005_visual_review.sql` is **additive**. Apply it only after backing up the current database and validating a restored copy. Enable `HOMEOS_MEMORY_ENABLED=true` only after all the memory migrations have been applied. The private evidence preview requires the `memory_media` volume; it is not a public download endpoint.
+
+**Security warning:** The existing `X-Member-Id` demo identity is not production authentication. Even though review handlers check `owner` role, a caller can impersonate that identity if the service is exposed. **Do not expose HomeOS externally or use real sensitive household recordings until production authentication and consent controls exist.**
