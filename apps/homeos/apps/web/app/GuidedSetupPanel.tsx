@@ -29,8 +29,11 @@ const jsonRequest=async<T,>(path:string,memberId:string,init:RequestInit={}):Pro
   if(!(init.body instanceof FormData))headers.set('Content-Type','application/json');
   const res=await fetch(path,{...init,headers,cache:'no-store'});
   if(!res.ok){
-    const detail=await res.text();
-    throw new Error(detail.slice(0,260)||`Request failed (${res.status})`);
+    const raw=await res.text();
+    let detail=raw;
+    try{const parsed=JSON.parse(raw);if(typeof parsed.detail==='string')detail=parsed.detail}
+    catch{/* Preserve plain-text fallback without exposing response internals. */}
+    throw new Error(detail.slice(0,340)||`Request failed (${res.status})`);
   }
   return res.json() as Promise<T>;
 };
@@ -87,6 +90,11 @@ export default function GuidedSetupPanel({memberId,floors,onUpdated}:{
     setFile(null);if(inputRef.current)inputRef.current.value='';
     setAiConsent(false);setNotice(response.message);
     await load();
+  });
+  const checkProvider=()=>run(async()=>{
+    const result=await jsonRequest<{status:string;message:string;model:string}>(
+      '/api/guided/provider-check',memberId,{method:'POST',body:'{}'});
+    setNotice(result.message+' Model: '+result.model+'.');
   });
   const analyze=(evidence:GuidedEvidence)=>run(async()=>{
     if(!aiConsent)throw new Error('Consent is required for this specific external AI analysis.');
@@ -209,6 +217,12 @@ export default function GuidedSetupPanel({memberId,floors,onUpdated}:{
         I consent to sending the selected image or video frames to OpenAI for this analysis
       </label>
       {!data.provider_configured&&<p className="guidedNote">AI analysis is disabled. Uploads and local coverage guidance work; enable the separate guided-setup provider in your sandbox to analyze media.</p>}
+      {data.provider_configured&&<div>
+        <button className="guidedSecondary" type="button" disabled={busy} onClick={checkProvider}>
+          Check AI connection — no photo or household data sent
+        </button>
+        <p className="guidedNote">This sends one tiny synthetic request to your configured provider and may incur a small API charge. It checks access, not image-recognition accuracy.</p>
+      </div>}
       {data.evidence.map(item=><details key={item.id} className="guidedMedia" open={false}>
         <summary><b>{labels[item.media_kind]}</b> · {item.room_hint||item.floor_hint||'Unassigned area'}
           <small> {item.status} · {item.pending_count} pending · {(item.bytes/1048576).toFixed(1)} MB</small>
