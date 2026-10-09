@@ -656,3 +656,4 @@ def health():return {'status':'ok','mode':'homeos-jarvis-m2c-contextual','versio
 # M3E owner-review endpoints are imported after demo actor and ORM definitions.
 from importlib import import_module as _import_review_module
 _import_review_module('app.visual_review')
+_import_review_module('app.photo_inspection')
