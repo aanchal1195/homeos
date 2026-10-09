@@ -4,6 +4,7 @@ on:
     paths:
       - "apps/homeos/**"
       - "compose.yaml"
+      - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
   pull_request:
     paths:
@@ -83,6 +84,11 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-jarvis-ci.py
+      - name: Verify M3E owner-reviewed visual observations in PostgreSQL
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+        run: python scripts/verify-visual-review-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
