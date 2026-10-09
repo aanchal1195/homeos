@@ -19,7 +19,7 @@ type MemoryEntity={id:string;type:string;name:string;location?:string|null;sourc
 type MemoryOverview={entities:MemoryEntity[];counts:Record<string,number>;authoritative_source:string};
 type ManagerPlan={id:string;title:string;status:string;task_id:string|null;task_status:string|null;
   evidence_count:number;follow_up:string;room_id:string;assignee_id:string;due_date:string;owner_confirmed:boolean};
-type MemoryHistory={asset:{id:string;name:string};locations:{location_name:string;verification_status:string;source_type:string;recorded_at:string;observation_id?:string|null}[];events:{type:string;occurred_at:string;observation_id?:string|null}[];disclaimer:string};
+type MemoryHistory={asset:{id:string;name:string};locations:{location_name:string;verification_status:string;source_type:string;recorded_at:string;observation_id?:string|null;source_ref?:string|null}[];events:{type:string;occurred_at:string;observation_id?:string|null}[];disclaimer:string};
 
 type VisualLocation={id:string;name:string;type:string};
 type VisualFinding={id:string;label:string;description:string;confidence:number|null;media_id:string;model_version:string|null;frame_timestamp_ms:number|null;inspected_location:string;matched_legacy_asset_id:string|null;locations:VisualLocation[];observed_at:string};
@@ -167,6 +167,8 @@ function MemoryPanel({memberId}:{memberId:string}){
             <b>{loc.location_name}</b>
             <small>{loc.verification_status} · {loc.source_type} · {new Date(loc.recorded_at).toLocaleString()}</small>
             {loc.observation_id&&<EvidencePreview memberId={memberId} observationId={loc.observation_id}/>}
+            {loc.source_ref?.startsWith('guided-setup:')&&<EvidencePreview memberId={memberId}
+              guidedEvidenceId={loc.source_ref.split(':')[1]}/>} 
           </div>)}
           <h4>Events</h4>
           {timeline.events.map((event,i)=><p key={i} className="memoryNote">{event.type} · {new Date(event.occurred_at).toLocaleString()}</p>)}
@@ -176,7 +178,7 @@ function MemoryPanel({memberId}:{memberId:string}){
 }
 
 
-function EvidencePreview({memberId,observationId}:{memberId:string;observationId:string}){
+function EvidencePreview({memberId,observationId,guidedEvidenceId}:{memberId:string;observationId?:string;guidedEvidenceId?:string}){
   const [open,setOpen]=useState(false),[url,setUrl]=useState(''),[kind,setKind]=useState('');
   const [error,setError]=useState('');
   useEffect(()=>{
@@ -186,7 +188,9 @@ function EvidencePreview({memberId,observationId}:{memberId:string;observationId
     (async()=>{
       try{
         setError('');
-        const response=await fetch('/api/memory/visual/'+observationId+'/evidence',
+        const path=guidedEvidenceId?'/api/guided/evidence/'+guidedEvidenceId+'/media':
+          '/api/memory/visual/'+observationId+'/evidence';
+        const response=await fetch(path,
           {headers:{'X-Member-Id':memberId},signal:controller.signal,cache:'no-store'});
         if(!response.ok)throw new Error('Evidence unavailable (HTTP '+response.status+').');
         const blob=await response.blob();
@@ -197,7 +201,7 @@ function EvidencePreview({memberId,observationId}:{memberId:string;observationId
       }catch(e){if(active)setError(String(e));}
     })();
     return ()=>{active=false;controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl);setUrl('')};
-  },[open,memberId,observationId]);
+  },[open,memberId,observationId,guidedEvidenceId]);
   return <div className="visualEvidence">
     <button className="ghost" type="button" onClick={()=>setOpen(v=>!v)}>{open?'Hide evidence':'View original evidence'}</button>
     {open&&<div className="visualEvidenceBody">{error&&<p className="memoryNote">{error}</p>}
