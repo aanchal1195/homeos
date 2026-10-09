@@ -1,10 +1,10 @@
 """HomeOS JARVIS MVP — M2C Contextual JARVIS.
 
 The virtual house / digital twin is mandatory before JARVIS becomes operational.
-Development identities are NOT production authentication. Conversational intent
-handling is deterministic in this build so domain authorization remains explicit.
+Development identities are NOT production authentication. M4C introduces an opt-in reasoning agent with deterministic, scoped tools.
+Legacy conversation remains an explicitly labeled fallback.
 """
-import os, re, uuid
+import os, re, uuid, json
 from datetime import datetime, timezone, date
 from pathlib import Path
 from typing import Optional
