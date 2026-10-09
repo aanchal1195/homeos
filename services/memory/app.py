@@ -216,3 +216,6 @@ app.include_router(graph_router)
 
 from visual_routes import router as visual_router
 app.include_router(visual_router)
+
+from vision_analysis import router as vision_router
+app.include_router(vision_router)
