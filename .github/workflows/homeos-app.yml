@@ -5,6 +5,8 @@ on:
       - "apps/homeos/**"
       - "compose.yaml"
       - "scripts/verify-photo-inspection-ci.py"
+      - "scripts/verify-jarvis-journey-ci.py"
+      - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
   pull_request:
@@ -95,6 +97,12 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
           HOMEOS_MEMORY_ENABLED: 'true'
         run: python scripts/verify-photo-inspection-ci.py
+      - name: Verify full owner visual-to-conversational memory loop (scripted CI vision only)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+          HOMEOS_CHAT_EXTERNAL_ENABLED: 'false'
+        run: python scripts/verify-jarvis-journey-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
