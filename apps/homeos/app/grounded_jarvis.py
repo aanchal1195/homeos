@@ -92,8 +92,14 @@ def optional_intent(utterance, assets, rooms, previous):
             # user or anchored by a persisted conversation reference.
             if parsed.subject and not word_match(parsed.subject,utterance):
                 prev_name=previous.get("ref_name")
-                if not prev_name or norm(parsed.subject)!=norm(prev_name):
+                is_pronoun=any(word_match(w,utterance) for w in FOLLOWUP_WORDS)
+                # An explicitly named unknown object must never silently
+                # become an earlier asset, even if the model guesses one.
+                if (_extract_unknown(utterance) or not is_pronoun or
+                    not prev_name or norm(parsed.subject)!=norm(prev_name)):
                     parsed.subject=None
+            if parsed.room and not word_match(parsed.room,utterance):
+                parsed.room=None
             return parsed
     except (httpx.HTTPError,ValueError,KeyError,IndexError,TypeError):
         return None
@@ -299,9 +305,12 @@ def answer(s,m,utterance):
 
     llm=optional_intent(utterance,assets,rooms,previous)
     if llm and llm.intent!="unknown":
-        if llm.intent=="history":history=True;contents=False
-        if llm.intent=="contents":contents=True;history=False
-        if llm.intent=="location":where=True
+        # Trust a model's intent only when no explicit read intent was
+        # recognized by the local grammar.
+        if not (history or contents or where):
+            if llm.intent=="history":history=True
+            if llm.intent=="contents":contents=True
+            if llm.intent=="location":where=True
         if llm.subject and not explicit_assets:
             explicit_assets=_asset_candidates(assets,llm.subject)
         if llm.room and not explicit_rooms:
