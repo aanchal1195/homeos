@@ -122,18 +122,32 @@ def analyze(session_id:uuid.UUID,media_id:uuid.UUID,house=Depends(identity)):
           WHERE sm.household_id=%s AND sm.session_id=%s AND sm.media_id=%s""",
           (house,session_id,media_id)).fetchone()
         if not media: raise HTTPException(404,"Media not attached to inspection")
-        old=conn.execute("""SELECT id,status,result_summary FROM visual_analysis_runs
-          WHERE household_id=%s AND session_id=%s AND media_id=%s
-          AND provider='openai' AND model_version=%s""",
+        # Unique constraint + row lock ensure concurrent POSTs cannot both start inference.
+        inserted=conn.execute("""INSERT INTO visual_analysis_runs
+          (household_id,session_id,media_id,status,provider,model_version)
+          VALUES(%s,%s,%s,'RUNNING','openai',%s)
+          ON CONFLICT (household_id,session_id,media_id,provider,model_version)
+          DO NOTHING RETURNING id""",
           (house,session_id,media_id,model)).fetchone()
-        if old:
+        if inserted:
+            run=inserted["id"]
+        else:
+            old=conn.execute("""SELECT id,status,result_summary FROM visual_analysis_runs
+              WHERE household_id=%s AND session_id=%s AND media_id=%s
+              AND provider='openai' AND model_version=%s FOR UPDATE""",
+              (house,session_id,media_id,model)).fetchone()
             if old["status"]=="COMPLETED":
                 return {"run_id":old["id"],"status":"COMPLETED","summary":old["result_summary"]}
-            raise HTTPException(409,"An analysis attempt already exists")
-        run=conn.execute("""INSERT INTO visual_analysis_runs
-          (household_id,session_id,media_id,status,provider,model_version)
-          VALUES(%s,%s,%s,'RUNNING','openai',%s) RETURNING id""",
-          (house,session_id,media_id,model)).fetchone()["id"]
+            if old["status"]=="RUNNING":
+                raise HTTPException(409,"Analysis already in progress")
+            if old["status"]!="FAILED":
+                raise HTTPException(409,"Analysis cannot be restarted in current state")
+            # Previous observation insert and run completion share one transaction.
+            # A failed attempt does not leave partially committed observations.
+            conn.execute("""UPDATE visual_analysis_runs SET status='RUNNING',
+                 error_code=NULL,result_summary='{}'::jsonb,completed_at=NULL
+                 WHERE household_id=%s AND id=%s""",(house,old["id"]))
+            run=old["id"]
         loc=need_entity(conn,house,session["expected_location_id"])
         known=registered_at(conn,house,loc["id"])
     root=Path(os.getenv("PRIVATE_MEDIA_ROOT","/srv/memory/private_media")).resolve()
@@ -144,8 +158,12 @@ def analyze(session_id:uuid.UUID,media_id:uuid.UUID,house=Depends(identity)):
         context=json.dumps({"expected_location":loc["canonical_name"],
                             "registered_assets":[x["canonical_name"] for x in known]})
         proposals=[]
-        for timestamp,encoded in frames(path,media["content_type"]):
+        processed_frames=frames(path,media["content_type"])
+        notes=[]
+        for timestamp,encoded in processed_frames:
             result=infer(encoded,context)
+            if result.inspection_notes:
+                notes.append({"timestamp_ms":timestamp,"text":result.inspection_notes})
             for detection in result.detections:
                 if not re.fullmatch(r"[\w\s./-]{2,100}",detection.label): continue
                 matched=resolve(detection.label,known)
@@ -167,7 +185,8 @@ def analyze(session_id:uuid.UUID,media_id:uuid.UUID,house=Depends(identity)):
                            "visible_condition":item["condition"],
                            "expected_location_id":str(loc["id"]),"match_type":"EXACT" if item["matched"] else "UNRESOLVED"}),
                     item["confidence"],media_id,item["timestamp"],model,run))
-            summary={"observations":len(proposals[:45]),"frames":len(set(x["timestamp"] for x in proposals))}
+            summary={"observations":len(proposals[:45]),"frames":len(processed_frames),
+                     "inspection_notes":notes}
             conn.execute("""UPDATE visual_analysis_runs SET status='COMPLETED',result_summary=%s,
                 completed_at=now() WHERE household_id=%s AND id=%s""",
                 (Jsonb(summary),house,run))
