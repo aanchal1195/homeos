@@ -219,3 +219,6 @@ app.include_router(visual_router)
 
 from vision_analysis import router as vision_router
 app.include_router(vision_router)
+
+from visual_analysis_routes import router as staged_worker_router
+app.include_router(staged_worker_router)

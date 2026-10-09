@@ -60,3 +60,7 @@ pytest -q tests
 ```
 
 Use a dedicated test database. The integration tests create persistent uniquely named test entities.
+
+## Optional staged analysis worker
+
+`M3C-staged-worker.md` documents the complementary queued worker workflow. Set a `HOMEOS_WORKER_TOKEN` different from `HOMEOS_API_TOKEN` before calling its endpoints; when unset, the worker endpoints reject requests. Apply `schema/004_staged_visual_worker.sql` after schema 003 on existing databases (back up first).
