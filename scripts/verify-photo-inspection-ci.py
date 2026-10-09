@@ -116,6 +116,10 @@ with tempfile.TemporaryDirectory(prefix="homeos-ci-private-") as temporary:
                 assert (Path(temporary)/link[0]).read_bytes()==raw
 
             # User must explicitly consent AFTER the private upload.
+            with psycopg.connect(os.environ["MEMORY_DATABASE_URL"]) as conn:
+                audit_before=conn.execute("""SELECT COUNT(*) FROM audit
+                    WHERE household_id=%s AND action='memory.visual.external_ai_consent'""",
+                    (house,)).fetchone()[0]
             no_consent=client.post("/api/memory/visual/inspection-analyze",
                 headers=owner_headers,
                 json={"session_id":sid,"media_id":mid,"consent_to_external_ai_processing":False})
@@ -134,6 +138,11 @@ with tempfile.TemporaryDirectory(prefix="homeos-ci-private-") as temporary:
                 headers=owner_headers,json={"session_id":sid,"media_id":mid,
                  "consent_to_external_ai_processing":True})
             assert not_configured.status_code==503,not_configured.text
+            with psycopg.connect(os.environ["MEMORY_DATABASE_URL"]) as conn:
+                audit_after=conn.execute("""SELECT COUNT(*) FROM audit
+                    WHERE household_id=%s AND action='memory.visual.external_ai_consent'""",
+                    (house,)).fetchone()[0]
+                assert audit_after==audit_before+1,"Only affirmative consent is recorded"
             with psycopg.connect(os.environ["MEMORY_DATABASE_URL"]) as conn:
                 after=conn.execute("""SELECT COUNT(*) FROM memory_observations
                     WHERE household_id=%s""",(house,)).fetchone()[0]
