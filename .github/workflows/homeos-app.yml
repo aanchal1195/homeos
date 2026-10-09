@@ -7,6 +7,7 @@ on:
       - "scripts/verify-photo-inspection-ci.py"
       - "scripts/verify-jarvis-journey-ci.py"
       - "scripts/verify-home-manager-ci.py"
+      - "scripts/verify-reasoning-agent-ci.py"
       - "scripts/ci_fake_vision_app.py"
       - "scripts/verify-visual-review-ci.py"
       - ".github/workflows/homeos-app.yml"
@@ -34,11 +35,11 @@ jobs:
           DATABASE_URL: sqlite:////tmp/homeos-legacy-alembic-test.sqlite
         run: |
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0005'
+          PYTHONPATH=. alembic current | grep '0006'
           python - <<'PY'
           import sqlite3
           db=sqlite3.connect('/tmp/homeos-legacy-alembic-test.sqlite')
-          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans'):
+          for table in ('households','properties','floors','rooms','zones','assets','memory_legacy_links','home_manager_plans','agent_runs'):
               assert db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(),table
           columns={r[1] for r in db.execute('PRAGMA table_info(assets)')}
           assert {'room_id','zone_id','asset_type'}.issubset(columns),columns
@@ -69,11 +70,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r apps/homeos/requirements.txt -r services/memory/requirements.txt
-      - name: Install the real M2C schema from Alembic 0001 to 0005
+      - name: Install the real M2C schema from Alembic 0001 to 0006
         run: |
           cd apps/homeos
           PYTHONPATH=. alembic upgrade head
-          PYTHONPATH=. alembic current | grep '0005'
+          PYTHONPATH=. alembic current | grep '0006'
       - name: Install the graph and visual memory tables
         run: |
           for sql in services/memory/schema/00*.sql; do
@@ -108,6 +109,11 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/apps/homeos
         run: python scripts/verify-home-manager-ci.py
+      - name: Verify M4C scripted-model reasoning across real scoped tools, proposals and fresh memory
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/homeos
+          HOMEOS_MEMORY_ENABLED: 'true'
+        run: python scripts/verify-reasoning-agent-ci.py
   frontend:
     runs-on: ubuntu-latest
     defaults:
