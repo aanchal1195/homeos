@@ -175,6 +175,9 @@ with tempfile.TemporaryDirectory(prefix="homeos-m4a-ci-") as temporary:
             answer=ask("Where did we put the electric kettle?")
             assert answer["intent"]=="MEMORY_GROUNDED_ASSET_LOCATION",answer
             assert "Kitchen" in answer["reply"] and "Last recorded" in answer["reply"]
+            hinglish=ask("Electric kettle kahan hai?")
+            assert hinglish["intent"]=="MEMORY_GROUNDED_ASSET_LOCATION",hinglish
+            assert "Kitchen" in hinglish["reply"],hinglish
             where_now=ask("And where is it now?")
             assert where_now["intent"]=="MEMORY_GROUNDED_ASSET_LOCATION",where_now
             assert "Electric Kettle" in where_now["reply"],where_now
