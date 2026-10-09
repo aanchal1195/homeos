@@ -30,6 +30,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Install ffmpeg for actual MP4 walkthrough decoding test
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: PYTHONPATH=. pytest -q
       - name: Verify historical Alembic revisions install cleanly from scratch
         env:
