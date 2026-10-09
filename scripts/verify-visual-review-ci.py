@@ -30,6 +30,7 @@ with SessionLocal() as s:
     assert owner and kitchen and refrigerator
     owner_id=owner.id
     fridge_id=refrigerator.id
+    kitchen_id=kitchen.id
     alternate=Room(household_id=house, name="Store Room",kind="store",
                    floor_id=kitchen.floor_id,floor=0)
     maid=Member(household_id=house,name="CI Maid",role="maid",language="hinglish")
@@ -51,7 +52,7 @@ def graph_link(typ,legacy):
     assert row,(typ,legacy)
     return row[0]
 
-kitchen_graph=graph_link("room",kitchen.id)
+kitchen_graph=graph_link("room",kitchen_id)
 alternate_graph=graph_link("room",alternate_room_id)
 fridge_graph=graph_link("asset",fridge_id)
 
@@ -141,7 +142,7 @@ with tempfile.TemporaryDirectory() as temporary:
     with SessionLocal() as s:
         added=s.scalars(select(Asset).where(Asset.household_id==house,Asset.name=="Microwave")).all()
         assert len(added)==1
-        assert added[0].room_id==kitchen.id
+        assert added[0].room_id==kitchen_id
 
     jarvis=client.post("/api/chat",headers=headers,json={"text":"Where is the microwave?"})
     assert jarvis.status_code==200,jarvis.text
