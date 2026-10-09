@@ -395,6 +395,33 @@ def test_guided_room_photo_rejection_and_adaptive_next(monkeypatch,tmp_path):
     with SessionLocal() as db:
         kettle=db.scalar(select(Asset).where(Asset.name=='Electric Kettle'))
         assert kettle and kettle.room_id==kitchen
+    # A second room photo naming the existing kettle cannot silently register a
+    # duplicate or turn an observation into a guessed relocation.
+    bathroom=next(r['id'] for f in home['floors'] for r in f['rooms']
+                  if r['name']=='Guest Bathroom')
+    duplicate=call('POST','/api/guided/upload',owner,data={
+       'media_kind':'ROOM_PHOTO','room_id':bathroom,'room_hint':'Guest Bathroom'},
+       files={'file':('another.png',buf.getvalue(),'image/png')})
+    assert duplicate.status_code==201,duplicate.text
+    duplicate_id=duplicate.json()['evidence']['id']
+    monkeypatch.setattr(guided_setup,'_infer',
+       lambda *_:guided_setup.VisionReadout.model_validate({
+         'findings':[{'kind':'ASSET','name':'Electric Kettle',
+            'asset_type':'appliance','evidence_summary':'Synthetic duplicate label'}]}))
+    seen=call('POST','/api/guided/analyze',owner,json={
+        'evidence_id':duplicate_id,'consent_to_external_ai_processing':True})
+    assert seen.status_code==200,seen.text
+    repeated=seen.json()['evidence']['suggestions'][0]
+    conflict=call('POST',f'/api/guided/evidence/{duplicate_id}/decide',owner,
+        json={'suggestion_id':repeated['id'],'decision':'ACCEPT',
+              'room_id':bathroom})
+    assert conflict.status_code==409,conflict.text
+    with SessionLocal() as db:
+        assets=db.scalars(select(Asset).where(Asset.name=='Electric Kettle')).all()
+        assert len(assets)==1 and assets[0].room_id==kitchen
+    # Close the ambiguous finding so adaptive guidance does not treat it as fact.
+    assert call('POST',f'/api/guided/evidence/{duplicate_id}/decide',owner,
+       json={'suggestion_id':repeated['id'],'decision':'REJECT'}).status_code==200
     status=call('GET','/api/guided/status',owner)
     assert status.status_code==200,status.text
     assert status.json()['counts']['pending_review']==0
