@@ -21,7 +21,7 @@ def test_requires_authorization(client):
 def test_entity_location_alias_and_provenance(client,headers):
     unique=uuid.uuid4().hex[:8]
     room=client.post("/api/v1/memory/entities",headers=headers,json={"entity_type":"ROOM","canonical_name":"Kitchen "+unique}).json()
-    asset=client.post("/api/v1/memory/entities",headers=headers,json={"entity_type":"ASSET","canonical_name":"Refrigerator "+unique,"aliases":["fridge-"+unique]}).json()
+    asset=client.post("/api/v1/memory/entities",headers=headers,json={"entity_type":"ASSET","canonical_name":"Refrigerator "+unique,"aliases":["fridge "+unique]}).json()
     assert "id" in room and "id" in asset
     result=client.post(f"/api/v1/memory/entities/{asset['id']}/location",headers=headers,json={
       "location_id":room["id"],"evidence":{"source_type":"OWNER","source_ref":"test-suite"},
@@ -35,7 +35,7 @@ def test_entity_location_alias_and_provenance(client,headers):
     location=client.get(f"/api/v1/memory/entities/{asset['id']}/location",headers=headers).json()
     assert location["path"][0]["canonical_name"]=="Kitchen "+unique
     assert location["path"][0]["source_type"]=="OWNER"
-    matches=client.get("/api/v1/memory/entities/search",headers=headers,params={"q":"fridge-"+unique}).json()["matches"]
+    matches=client.get("/api/v1/memory/entities/search",headers=headers,params={"q":"fridge "+unique}).json()["matches"]
     assert len(matches)==1 and matches[0]["id"]==asset["id"]
     history=client.get(f"/api/v1/memory/entities/{asset['id']}/history",headers=headers).json()
     assert len(history["events"])==1
