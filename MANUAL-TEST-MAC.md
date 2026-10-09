@@ -200,6 +200,16 @@ If you received an error saying “Image encoding does not match file type”
 in your previous localhost:3300 app, the fix only arrives after rebuilding
 the **sandbox API and web** from an updated source ZIP.
 
+**Simplest secure option:** after downloading/rebuilding the updated source,
+run `bash scripts/enable-guided-ai-sandbox.sh` from its root in your Mac
+Terminal. The script verifies the Compose project is exactly
+`homeos-sandbox`, silently prompts for your key without recording it in
+Terminal history, sets the opt-in in your private `.env.smoke`, and
+recreates **only the sandbox API**. It cannot be run on the real homeos
+project.
+
+Alternatively, edit the file manually as described below.
+
 To turn on **guided AI** in your sandbox, use a valid OpenAI Platform API key
 (this is separate from a ChatGPT subscription). Edit the private
 `.env.smoke` on your Mac, without exposing the key in this chat:
