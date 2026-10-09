@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.main import app, actor, db, require_owner
+from app.main import app, actor, db, require_owner, audit
 from app.memory_bridge import _uuid, _run, supported
 
 ALLOWED_PHOTOS={"image/jpeg","image/png","image/webp"}
@@ -129,6 +129,11 @@ def inspection_analyze(body:AnalyzeConsent,m=Depends(actor),s:Session=Depends(db
     if not attached:
         raise HTTPException(404,"Photo is not attached to an open household inspection")
     _location(s,house,attached["expected_location_id"])
+    # Record the owner's affirmative disclosure authorization BEFORE any outbound
+    # provider request. Preserve this audit even when inference later fails.
+    audit(s,m,"memory.visual.external_ai_consent",
+          f"session={body.session_id};media={body.media_id};provider=openai")
+    s.commit()
     outcome=_service_request("POST",f"/api/v1/visual/sessions/{body.session_id}/analyze/{body.media_id}")
     return {"session_id":str(body.session_id),"media_id":str(body.media_id),
             "status":outcome.get("status"),"run_id":str(outcome.get("run_id")),
